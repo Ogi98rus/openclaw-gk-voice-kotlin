@@ -51,6 +51,36 @@ class VoiceRecordingService : Service() {
                 notificationManager.createNotificationChannel(channel)
             }
         }
+
+        /**
+         * Запустить ForegroundService для записи.
+         */
+        fun start(context: Context) {
+            val intent = Intent(context, VoiceRecordingService::class.java).apply {
+                action = "START"
+            }
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        /**
+         * Остановить ForegroundService.
+         */
+        fun stop(context: Context) {
+            val intent = Intent(context, VoiceRecordingService::class.java).apply {
+                action = "STOP"
+            }
+            context.startService(intent)
+        }
+
+        /**
+         * Поставить сервис на паузу (скрыть индикатор записи).
+         */
+        fun pause(context: Context) {
+            val intent = Intent(context, VoiceRecordingService::class.java).apply {
+                action = "PAUSE"
+            }
+            context.startService(intent)
+        }
     }
 
     /**
