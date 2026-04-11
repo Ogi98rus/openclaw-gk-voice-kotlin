@@ -175,6 +175,26 @@ class GatewayClient @Inject constructor(
     fun getCurrentConfig(): GatewayConfig? = currentConfig
 
     /**
+     * Подключиться к активному gateway через GatewayManager.
+     * Если активный gateway есть и его статус — Disconnected или Error — подключаемся.
+     */
+    fun connectToActiveGateway(
+        gatewayManager: GatewayManager,
+        callback: GatewayCallback
+    ) {
+        val active = gatewayManager.getActiveGateway()
+        if (active != null &&
+            (active.status == GatewayStatus.Disconnected || active.status == GatewayStatus.Error)) {
+            connect(active, callback)
+        } else if (active?.status == GatewayStatus.Connected) {
+            // Уже подключён — просто обновляем callback
+            this.callback = callback
+            callback.onStatusChanged(GatewayStatus.Connected)
+            callback.onConnected()
+        }
+    }
+
+    /**
      * Освободить ресурсы.
      */
     fun shutdown() {
@@ -187,13 +207,90 @@ class GatewayClient @Inject constructor(
     /**
      * Обработка входящего текстового сообщения.
      * Парсит JSON и вызывает соответствующий callback.
+     *
+     * Поддерживаемые форматы:
+     * - {"type":"message","text":"..."} → callback.onMessage(text)
+     * - {"type":"status","text":"..."} → callback.onMessage(status text)
+     * - Любой другой JSON или plain text → callback.onMessage(text)
+     * - heartbeat/pong — игнорируем
      */
     private fun handleIncomingText(text: String) {
-        // Простая обработка: если это heartbeat-pong — игнорируем
+        // Heartbeat pong — игнорируем
         if (text.contains("\"type\":\"heartbeat\"") || text.contains("\"type\":\"pong\"")) {
             return
         }
-        callback?.onMessage(text)
+
+        // Пробуем распарсить как JSON и извлечь type + text
+        val callback = this.callback ?: return
+
+        try {
+            val type = extractJsonField(text, "type")
+            val messageText = extractJsonField(text, "text")
+
+            when (type) {
+                "message" -> {
+                    // Текстовый ответ агента
+                    if (messageText != null) {
+                        callback.onMessage(messageText)
+                    } else {
+                        callback.onMessage(text)
+                    }
+                }
+                "status" -> {
+                    // Статусное сообщение — тоже передаём как текст
+                    if (messageText != null) {
+                        callback.onMessage(messageText)
+                    } else {
+                        callback.onMessage(text)
+                    }
+                }
+                else -> {
+                    // Неизвестный тип или plain text — передаём как есть
+                    callback.onMessage(text)
+                }
+            }
+        } catch (e: Exception) {
+            // Если не удалось распарсить — передаём raw текст
+            callback.onMessage(text)
+        }
+    }
+
+    /**
+     * Извлечь значение строкового поля из простого JSON.
+     * Без полного парсинга — просто ищем "key":"value" паттерн.
+     * Работает для flat JSON объектов.
+     */
+    private fun extractJsonField(json: String, key: String): String? {
+        val pattern = "\"${key}\"\\s*:\\s*\""
+        val startIndex = json.indexOf(pattern)
+        if (startIndex == -1) return null
+
+        val valueStart = startIndex + pattern.length
+        var valueEnd = valueStart
+        var escaped = false
+
+        while (valueEnd < json.length) {
+            val ch = json[valueEnd]
+            if (escaped) {
+                escaped = false
+            } else if (ch == '\\') {
+                escaped = true
+            } else if (ch == '"') {
+                break
+            }
+            valueEnd++
+        }
+
+        return if (valueEnd > valueStart) {
+            json.substring(valueStart, valueEnd)
+                .replace("\\n", "\n")
+                .replace("\\r", "\r")
+                .replace("\\t", "\t")
+                .replace("\\\\", "\\")
+                .replace("\\\"", "\"")
+        } else {
+            null
+        }
     }
 
     /**

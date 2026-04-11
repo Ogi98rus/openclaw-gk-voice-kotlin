@@ -2,6 +2,8 @@ package com.gorikon.openclawgkvoice.di
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.gorikon.openclawgkvoice.audio.AudioPlayer
+import com.gorikon.openclawgkvoice.audio.AudioRecorder
 import com.gorikon.openclawgkvoice.gateway.GatewayClient
 import com.gorikon.openclawgkvoice.gateway.GatewayManager
 import com.gorikon.openclawgkvoice.storage.EncryptedPrefsFactory
@@ -101,5 +103,27 @@ object AppModule {
         @ApplicationContext context: Context
     ): SettingsRepository {
         return SettingsRepository(context)
+    }
+
+    /**
+     * AudioRecorder — для записи PCM 16kHz с микрофона.
+     * Singleton: один экземпляр на всё приложение.
+     */
+    @Provides
+    @Singleton
+    fun provideAudioRecorder(
+        @ApplicationContext context: Context
+    ): AudioRecorder {
+        return AudioRecorder(context)
+    }
+
+    /**
+     * AudioPlayer — для воспроизведения аудио-ответов.
+     * Singleton: один экземпляр на всё приложение.
+     */
+    @Provides
+    @Singleton
+    fun provideAudioPlayer(): AudioPlayer {
+        return AudioPlayer()
     }
 }

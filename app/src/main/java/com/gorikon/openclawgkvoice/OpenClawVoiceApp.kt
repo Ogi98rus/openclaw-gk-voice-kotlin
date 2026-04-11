@@ -1,6 +1,7 @@
 package com.gorikon.openclawgkvoice
 
 import android.app.Application
+import com.gorikon.openclawgkvoice.service.VoiceRecordingService
 import dagger.hilt.android.HiltAndroidApp
 
 /**
@@ -8,4 +9,13 @@ import dagger.hilt.android.HiltAndroidApp
  * Запускается раньше всех, обеспечивает инъекцию зависимостей во весь проект.
  */
 @HiltAndroidApp
-class OpenClawVoiceApp : Application()
+class OpenClawVoiceApp : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // Создаём NotificationChannel для foreground-сервиса записи
+        // (нужно вызвать до первого запуска сервиса)
+        VoiceRecordingService.createNotificationChannel(this)
+    }
+}

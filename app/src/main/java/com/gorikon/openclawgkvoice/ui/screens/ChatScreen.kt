@@ -13,7 +13,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gorikon.openclawgkvoice.gateway.ChatMessage
+import com.gorikon.openclawgkvoice.gateway.GatewayStatus
 
 /**
  * Экран текстового чата с агентом.
@@ -21,15 +23,25 @@ import com.gorikon.openclawgkvoice.gateway.ChatMessage
  * - LazyColumn с сообщениями (пользователь справа, агент слева)
  * - TextField внизу для ввода сообщений
  * - Автоматическая прокрутка к последнему сообщению
+ * - Подписка на messages через collectAsStateWithLifecycle
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     gatewayId: String,
-    messages: List<ChatMessage>,
+    viewModel: ChatViewModel,
     onBack: () -> Unit,
     onSendMessage: (String) -> Unit
 ) {
+    // Подписка на StateFlow сообщений — автоматически обновляется при изменении
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
+
+    // Инициализация ViewModel при первом входе на экран
+    LaunchedEffect(gatewayId) {
+        viewModel.initialize(gatewayId)
+    }
+
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -51,7 +63,19 @@ fun ChatScreen(
                         )
                     }
                 },
-                title = { Text("Чат") }
+                title = { Text("Чат") },
+                actions = {
+                    // Индикатор статуса подключения
+                    Text(
+                        text = when (connectionStatus) {
+                            GatewayStatus.Connected -> "🟢"
+                            GatewayStatus.Connecting -> "🟡"
+                            GatewayStatus.Error -> "🔴"
+                            GatewayStatus.Disconnected -> "⚫"
+                        },
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
             )
         },
         bottomBar = {
@@ -71,7 +95,8 @@ fun ChatScreen(
                         modifier = Modifier.weight(1f),
                         placeholder = { Text("Введите сообщение...") },
                         singleLine = false,
-                        maxLines = 4
+                        maxLines = 4,
+                        enabled = connectionStatus == GatewayStatus.Connected
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     // Кнопка отправки
@@ -82,7 +107,7 @@ fun ChatScreen(
                                 inputText = ""
                             }
                         },
-                        enabled = inputText.isNotBlank()
+                        enabled = inputText.isNotBlank() && connectionStatus == GatewayStatus.Connected
                     ) {
                         Icon(
                             imageVector = Icons.Default.Send,
@@ -120,6 +145,21 @@ fun ChatScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                 )
+
+                // Показываем подсказку если не подключены
+                if (connectionStatus != GatewayStatus.Connected) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = when (connectionStatus) {
+                            GatewayStatus.Connected -> ""
+                            GatewayStatus.Connecting -> "⏳ Подключение к gateway..."
+                            GatewayStatus.Error -> "❌ Ошибка подключения. Проверьте настройки."
+                            GatewayStatus.Disconnected -> "⚠️ Gateway не подключён"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         } else {
             LazyColumn(

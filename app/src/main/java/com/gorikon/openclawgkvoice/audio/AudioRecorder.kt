@@ -9,6 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.math.sqrt
 
 /**
@@ -32,14 +34,17 @@ interface AudioRecorderCallback {
  * - Encoding: PCM 16-bit
  *
  * Использует AudioRecord (а не MediaRecorder), т.к. нужен потоковый доступ к PCM-данным.
+ *
+ * Инжектится через Hilt с Application Context. Callback устанавливается через setCallback().
  */
-class AudioRecorder(
-    private val context: Context,
-    private val callback: AudioRecorderCallback
+@Singleton
+class AudioRecorder @Inject constructor(
+    private val context: Context
 ) {
     private var audioRecord: AudioRecord? = null
     private var recordingJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
+    private var callback: AudioRecorderCallback? = null
 
     // Параметры записи
     private val sampleRate = 16000
@@ -53,6 +58,13 @@ class AudioRecorder(
     }
 
     private var isRecording = false
+
+    /**
+     * Установить callback для получения аудио-данных.
+     */
+    fun setCallback(cb: AudioRecorderCallback?) {
+        this.callback = cb
+    }
 
     /**
      * Начать запись с микрофона.
@@ -71,7 +83,7 @@ class AudioRecorder(
             )
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                callback.onError("Не удалось инициализировать AudioRecord")
+                callback?.onError("Не удалось инициализировать AudioRecord")
                 return
             }
 
@@ -85,18 +97,18 @@ class AudioRecorder(
                     val read = audioRecord?.read(buffer, 0, bufferSize) ?: 0
                     if (read > 0) {
                         val chunk = buffer.copyOf(read)
-                        callback.onAudioChunk(chunk)
+                        callback?.onAudioChunk(chunk)
 
                         // Вычисляем амплитуду для визуализации
                         val amplitude = calculateAmplitude(chunk)
-                        callback.onAmplitudeChanged(amplitude)
+                        callback?.onAmplitudeChanged(amplitude)
                     }
                 }
             }
         } catch (e: SecurityException) {
-            callback.onError("Нет разрешения на запись аудио")
+            callback?.onError("Нет разрешения на запись аудио")
         } catch (e: Exception) {
-            callback.onError("Ошибка записи: ${e.message}")
+            callback?.onError("Ошибка записи: ${e.message}")
         }
     }
 
@@ -117,7 +129,7 @@ class AudioRecorder(
         audioRecord = null
 
         // Сбрасываем амплитуду
-        callback.onAmplitudeChanged(0f)
+        callback?.onAmplitudeChanged(0f)
     }
 
     /**
@@ -152,14 +164,14 @@ class AudioRecorder(
                     val read = audioRecord?.read(buffer, 0, bufferSize) ?: 0
                     if (read > 0) {
                         val chunk = buffer.copyOf(read)
-                        callback.onAudioChunk(chunk)
+                        callback?.onAudioChunk(chunk)
                         val amplitude = calculateAmplitude(chunk)
-                        callback.onAmplitudeChanged(amplitude)
+                        callback?.onAmplitudeChanged(amplitude)
                     }
                 }
             }
         } catch (e: Exception) {
-            callback.onError("Ошибка возобновления: ${e.message}")
+            callback?.onError("Ошибка возобновления: ${e.message}")
         }
     }
 
@@ -167,6 +179,14 @@ class AudioRecorder(
      * Флаг: идёт ли запись прямо сейчас.
      */
     fun isCurrentlyRecording(): Boolean = isRecording
+
+    /**
+     * Освободить все ресурсы.
+     */
+    fun release() {
+        stopRecording()
+        scope.cancel()
+    }
 
     /**
      * Вычислить среднеквадратичную амплитуду из PCM 16-bit данных.

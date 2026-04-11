@@ -70,6 +70,12 @@ dependencies {
     // Navigation Compose
     implementation("androidx.navigation:navigation-compose:2.8.5")
 
+    // Core KTX (для NotificationManagerCompat)
+    implementation("androidx.core:core-ktx:1.15.0")
+
+    // Lifecycle ViewModel KTX (для AndroidViewModel)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+
     // OkHttp + WebSocket
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")

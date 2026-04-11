@@ -77,11 +77,13 @@ fun AppNavHost() {
             arguments = listOf(navArgument("gatewayId") { type = NavType.StringType })
         ) { backStackEntry ->
             val gatewayId = backStackEntry.arguments?.getString("gatewayId") ?: return@composable
-            val viewModel: ChatViewModel = hiltViewModel()
+            val viewModel: ChatViewModel = hiltViewModel(
+                key = gatewayId // Уникальный ключ для каждого gateway — разные ViewModel
+            )
 
             ChatScreen(
                 gatewayId = gatewayId,
-                messages = viewModel.messages,
+                viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onSendMessage = { text -> viewModel.sendMessage(text) }
             )
@@ -93,7 +95,9 @@ fun AppNavHost() {
             arguments = listOf(navArgument("gatewayId") { type = NavType.StringType })
         ) { backStackEntry ->
             val gatewayId = backStackEntry.arguments?.getString("gatewayId") ?: return@composable
-            val viewModel: VoiceViewModel = hiltViewModel()
+            val viewModel: VoiceViewModel = hiltViewModel(
+                key = gatewayId // Уникальный ключ для каждого gateway
+            )
             val voiceState by viewModel.voiceState.collectAsStateWithLifecycle()
 
             VoiceScreen(

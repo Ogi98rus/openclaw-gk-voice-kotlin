@@ -10,15 +10,28 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
+ * Callback для отслеживания состояния воспроизведения.
+ */
+interface AudioPlayerCallback {
+    /** Воспроизведение началось */
+    fun onPlaybackStarted()
+    /** Воспроизведение завершилось */
+    fun onPlaybackFinished()
+}
+
+/**
  * Воспроизведение аудио, полученного от gateway (TTS ответ агента).
  *
  * Использует AudioTrack для потокового воспроизведения PCM 16-bit данных.
  * Настройки соответствуют параметрам записи: 16kHz, mono, PCM 16-bit.
+ *
+ * Инжектится через Hilt. Callback устанавливается через setCallback().
  */
 class AudioPlayer {
     private var audioTrack: AudioTrack? = null
     private val scope = CoroutineScope(Dispatchers.IO)
     private var playbackJob: Job? = null
+    private var callback: AudioPlayerCallback? = null
 
     // Параметры воспроизведения
     private val sampleRate = 16000
@@ -32,6 +45,13 @@ class AudioPlayer {
     }
 
     private var isPlaying = false
+
+    /**
+     * Установить callback для отслеживания состояния воспроизведения.
+     */
+    fun setCallback(cb: AudioPlayerCallback?) {
+        this.callback = cb
+    }
 
     /**
      * Воспроизвести аудио-данные из ByteArray (PCM 16-bit).
@@ -70,6 +90,7 @@ class AudioPlayer {
 
             audioTrack?.play()
             isPlaying = true
+            callback?.onPlaybackStarted()
 
             playbackJob = scope.launch {
                 audioTrack?.write(data, 0, data.size)
@@ -79,9 +100,11 @@ class AudioPlayer {
                     kotlinx.coroutines.delay(50)
                 }
                 isPlaying = false
+                callback?.onPlaybackFinished()
             }
         } catch (e: Exception) {
             isPlaying = false
+            callback?.onPlaybackFinished()
         }
     }
 
@@ -115,8 +138,10 @@ class AudioPlayer {
 
             audioTrack?.play()
             isPlaying = true
+            callback?.onPlaybackStarted()
         } catch (e: Exception) {
             isPlaying = false
+            callback?.onPlaybackFinished()
         }
     }
 
@@ -144,6 +169,8 @@ class AudioPlayer {
         }
         audioTrack?.release()
         audioTrack = null
+
+        callback?.onPlaybackFinished()
     }
 
     /**
