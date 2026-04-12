@@ -27,6 +27,7 @@ import com.gorikon.openclawgkvoice.ui.components.GatewayCard
  * - FAB для добавления нового gateway'я
  * - Иконка настроек в App Bar
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     gateways: List<GatewayConfig>,

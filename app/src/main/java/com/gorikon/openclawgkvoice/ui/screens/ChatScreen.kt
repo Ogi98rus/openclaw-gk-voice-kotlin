@@ -97,12 +97,15 @@ fun ChatScreen(
                     // Кнопка отправки
                     FloatingActionButton(
                         onClick = {
-                            if (inputText.isNotBlank()) {
+                            if (inputText.isNotBlank() && connectionStatus == GatewayStatus.Connected) {
                                 onSendMessage(inputText.trim())
                                 inputText = ""
                             }
                         },
-                        enabled = inputText.isNotBlank() && connectionStatus == GatewayStatus.Connected
+                        containerColor = if (inputText.isNotBlank() && connectionStatus == GatewayStatus.Connected)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Send,
