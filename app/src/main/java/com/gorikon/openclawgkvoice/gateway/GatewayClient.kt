@@ -264,10 +264,10 @@ class GatewayClient @Inject constructor(
                 "minProtocol":3,
                 "maxProtocol":3,
                 "client":{
-                    "id":"gk-voice-android",
+                    "id":"cli",
                     "version":"1.0.0",
                     "platform":"android",
-                    "mode":"operator"
+                    "mode":"cli"
                 },
                 "role":"operator",
                 "scopes":["operator.read","operator.write"],
