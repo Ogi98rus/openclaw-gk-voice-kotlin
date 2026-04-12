@@ -1,5 +1,6 @@
 package com.gorikon.openclawgkvoice.gateway
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -16,6 +17,8 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val TAG = "GatewayClient"
 
 /**
  * Callback-интерфейс для событий WebSocket-подключения.
@@ -72,34 +75,44 @@ class GatewayClient @Inject constructor(
      * Открывает WebSocket и ждёт connect.challenge от сервера.
      */
     fun connect(config: GatewayConfig, callback: GatewayCallback) {
-        if (isShutdown) return
+        if (isShutdown) {
+            Log.w(TAG, "connect() called but isShutdown=true, ignoring")
+            return
+        }
 
+        Log.d(TAG, "connect() called: url=${config.url}, name=${config.name}")
         this.currentConfig = config
         this.callback = callback
         this.handshakeNonce = null
         this.isConnected = false
 
         callback.onStatusChanged(GatewayStatus.Connecting)
+        Log.d(TAG, "Status changed to Connecting")
 
         val request = Request.Builder()
             .url(config.url)
             .build()
 
+        Log.d(TAG, "Opening WebSocket connection...")
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d(TAG, "WebSocket opened! Code: ${response.code}")
                 reconnectAttempts = 0
                 // НЕ помечаем как Connected — ждём hello-ok после handshake
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                Log.d(TAG, "onMessage text: ${text.take(150)}")
                 handleIncomingText(text)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                Log.d(TAG, "onMessage bytes: ${bytes.size} bytes")
                 callback?.onAudio(bytes.toByteArray())
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "WebSocket closed: code=$code, reason=$reason")
                 stopHeartbeat()
                 isConnected = false
                 callback?.onStatusChanged(GatewayStatus.Disconnected)
@@ -108,6 +121,7 @@ class GatewayClient @Inject constructor(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e(TAG, "WebSocket failure: ${t.message}, response code: ${response?.code}")
                 stopHeartbeat()
                 isConnected = false
                 callback?.onStatusChanged(GatewayStatus.Error)
@@ -121,7 +135,7 @@ class GatewayClient @Inject constructor(
      * Отключиться от gateway'я.
      */
     fun disconnect() {
-        isShutdown = true
+        isShutdown = false  // Сбрасываем, чтобы connect() мог работать снова
         isConnected = false
         stopHeartbeat()
         reconnectJob?.cancel()
@@ -139,8 +153,12 @@ class GatewayClient @Inject constructor(
      * Отправить текстовое сообщение агенту.
      */
     fun sendMessage(text: String) {
-        if (!isConnected) return
+        if (!isConnected) {
+            Log.w(TAG, "sendMessage called but not connected")
+            return
+        }
         val message = """{"type":"$MESSAGE_TYPE","text":"${text.escapeJson()}"}"""
+        Log.d(TAG, "sendMessage: ${text.take(50)}")
         webSocket?.send(message)
     }
 
@@ -148,7 +166,11 @@ class GatewayClient @Inject constructor(
      * Отправить аудио-данные (PCM 16-bit, 16kHz, mono).
      */
     fun sendAudio(data: ByteArray) {
-        if (!isConnected) return
+        if (!isConnected) {
+            Log.w(TAG, "sendAudio called but not connected")
+            return
+        }
+        Log.d(TAG, "sendAudio: ${data.size} bytes")
         webSocket?.send(ByteString.of(*data))
     }
 
@@ -241,12 +263,15 @@ class GatewayClient @Inject constructor(
      * Обработка connect.challenge — извлекаем nonce и отправляем connect.
      */
     private fun handleChallenge(json: String) {
+        Log.d(TAG, "handleChallenge: received connect.challenge")
         val nonce = extractJsonField(json, "nonce")
         if (nonce == null) {
+            Log.e(TAG, "No nonce in challenge!")
             callback?.onError(IllegalStateException("No nonce in challenge"))
             return
         }
 
+        Log.d(TAG, "Got nonce: ${nonce.take(8)}..., sending connect...")
         handshakeNonce = nonce
         sendConnect(currentConfig?.apiKey ?: "", nonce)
     }
@@ -271,17 +296,20 @@ class GatewayClient @Inject constructor(
                 },
                 "role":"operator",
                 "scopes":["operator.read","operator.write"],
-                "auth":{"token":"$apiKey"}
+                "auth":{"token":"${apiKey.take(8)}..."}
             }
         }""".trimIndent().replace("\n", "").replace(" ", "")
 
-        webSocket?.send(connectMessage)
+        Log.d(TAG, "Sending connect message, id=$connectId")
+        val sent = webSocket?.send(connectMessage)
+        Log.d(TAG, "Connect message sent: $sent")
     }
 
     /**
      * Обработка hello-ok — подключение установлено.
      */
     private fun handleHelloOk(json: String) {
+        Log.d(TAG, "handleHelloOk: connection established! 🎉")
         isConnected = true
         reconnectAttempts = 0
         callback?.onStatusChanged(GatewayStatus.Connected)

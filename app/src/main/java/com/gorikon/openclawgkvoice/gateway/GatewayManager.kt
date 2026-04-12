@@ -1,5 +1,6 @@
 package com.gorikon.openclawgkvoice.gateway
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +10,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val TAG = "GatewayManager"
 
 /**
  * Менеджер управления несколькими gateway-подключениями.
@@ -78,7 +81,13 @@ class GatewayManager @Inject constructor(
      * Подключается к новому gateway'ю и отключается от старого.
      */
     fun selectGateway(gatewayId: String, callback: GatewayCallback) {
-        val gateway = _gateways.value.find { it.id == gatewayId } ?: return
+        Log.d(TAG, "selectGateway called: $gatewayId")
+        val gateway = _gateways.value.find { it.id == gatewayId }
+        if (gateway == null) {
+            Log.e(TAG, "Gateway not found: $gatewayId")
+            return
+        }
+        Log.d(TAG, "Found gateway: ${gateway.name}, url=${gateway.url}")
 
         // Обновляем isActive у всех gateway'ев
         _gateways.update { currentList ->
@@ -88,6 +97,7 @@ class GatewayManager @Inject constructor(
         }
 
         // Отключаемся от текущего и подключаемся к новому
+        Log.d(TAG, "Disconnecting current, connecting to new...")
         gatewayClient.disconnect()
         gatewayClient.connect(gateway, callback)
     }

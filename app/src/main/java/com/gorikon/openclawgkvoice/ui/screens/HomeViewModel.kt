@@ -1,5 +1,6 @@
 package com.gorikon.openclawgkvoice.ui.screens
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gorikon.openclawgkvoice.gateway.GatewayCallback
@@ -11,6 +12,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+private const val TAG = "HomeViewModel"
 
 /**
  * ViewModel главного экрана — управление списком gateway'ев.
@@ -44,15 +47,24 @@ class HomeViewModel @Inject constructor(
     }
 
     init {
+        Log.d(TAG, "HomeViewModel init — loading gateways")
         // Загружаем сохранённые gateway'и при старте
         viewModelScope.launch {
-            val saved = gatewayRepository.getGateways()
-            gatewayManager.loadGateways(saved)
+            try {
+                val saved = gatewayRepository.getGateways()
+                Log.d(TAG, "Loaded ${saved.size} gateway(s): ${saved.map { it.name }}")
+                gatewayManager.loadGateways(saved)
 
-            // Если есть активный gateway — автоматически подключаемся
-            val active = saved.find { it.isActive }
-            if (active != null) {
-                gatewayManager.selectGateway(active.id, gatewayCallback)
+                // Если есть активный gateway — автоматически подключаемся
+                val active = saved.find { it.isActive }
+                if (active != null) {
+                    Log.d(TAG, "Auto-connecting to active: ${active.name} (${active.url})")
+                    gatewayManager.selectGateway(active.id, gatewayCallback)
+                } else {
+                    Log.d(TAG, "No active gateway found")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading gateways", e)
             }
         }
     }
@@ -61,6 +73,7 @@ class HomeViewModel @Inject constructor(
      * Выбрать gateway как активный и подключиться.
      */
     fun selectGateway(gatewayId: String) {
+        Log.d(TAG, "selectGateway called: $gatewayId")
         gatewayManager.selectGateway(gatewayId, gatewayCallback)
     }
 
@@ -78,9 +91,28 @@ class HomeViewModel @Inject constructor(
      * Добавить новый gateway (вызывается из AddGatewayScreen).
      */
     fun addGateway(config: GatewayConfig) {
+        Log.d(TAG, "addGateway called: ${config.name} url=${config.url}")
         viewModelScope.launch {
-            gatewayRepository.saveGateway(config)
-            gatewayManager.addGateway(config)
+            try {
+                // Сначала добавляем в менеджере — он может пометить первый gateway как isActive
+                gatewayManager.addGateway(config)
+
+                // Получаем фактический конфиг (с потенциально изменённым isActive)
+                val addedGateway = gateways.value.find { it.id == config.id } ?: config
+                Log.d(TAG, "Added gateway, isActive=${addedGateway.isActive}")
+
+                // Сохраняем в репозиторий с актуальным isActive
+                gatewayRepository.saveGateway(addedGateway)
+                Log.d(TAG, "Saved gateway to repository")
+
+                // Если gateway стал активным — подключаемся
+                if (addedGateway.isActive) {
+                    Log.d(TAG, "Auto-selecting gateway: ${config.id}")
+                    gatewayManager.selectGateway(config.id, gatewayCallback)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error adding gateway", e)
+            }
         }
     }
 }
