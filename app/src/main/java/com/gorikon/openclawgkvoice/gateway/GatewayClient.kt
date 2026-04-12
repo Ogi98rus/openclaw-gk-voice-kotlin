@@ -296,7 +296,7 @@ class GatewayClient @Inject constructor(
                 },
                 "role":"operator",
                 "scopes":["operator.read","operator.write"],
-                "auth":{"token":"${apiKey.take(8)}..."}
+                "auth":{"token":"${apiKey}"}
             }
         }""".trimIndent().replace("\n", "").replace(" ", "")
 
@@ -319,53 +319,59 @@ class GatewayClient @Inject constructor(
 
     /**
      * Извлечь значение строкового поля из JSON.
+     * Работает без regex — ищет литеральную строку `"key":` или `"key" :`.
      */
     private fun extractJsonField(json: String, key: String): String? {
-        val pattern = "\"${key}\"\\s*:\\s*\""
-        val startIndex = json.indexOf(pattern)
-        if (startIndex == -1) {
-            // Пробуем без кавычек (для boolean/numbers)
-            val patternNoQuote = "\"${key}\"\\s*:\\s*"
-            val startIndex2 = json.indexOf(patternNoQuote)
-            if (startIndex2 != -1) {
-                val valueStart = startIndex2 + patternNoQuote.length
-                // Читаем до запятой или закрывающей скобки
-                var valueEnd = valueStart
-                while (valueEnd < json.length) {
-                    val ch = json[valueEnd]
-                    if (ch == ',' || ch == '}' || ch == ']' || ch == ' ') break
-                    valueEnd++
+        // Ищем "key": или "key" :
+        val keyPattern = "\"$key\""
+        val keyIndex = json.indexOf(keyPattern)
+        if (keyIndex == -1) return null
+
+        // Пропускаем "key" и любые пробелы до :
+        var pos = keyIndex + keyPattern.length
+        while (pos < json.length && (json[pos] == ' ' || json[pos] == '\t')) pos++
+        if (pos >= json.length || json[pos] != ':') return null
+        pos++ // пропускаем :
+        while (pos < json.length && (json[pos] == ' ' || json[pos] == '\t')) pos++
+
+        if (pos >= json.length) return null
+
+        // Проверяем: строковое значение (в кавычках) или примитив?
+        if (json[pos] == '"') {
+            // Строковое значение
+            pos++ // пропускаем открывающую кавычку
+            val valueStart = pos
+            var escaped = false
+            while (pos < json.length) {
+                val ch = json[pos]
+                if (escaped) {
+                    escaped = false
+                } else if (ch == '\\') {
+                    escaped = true
+                } else if (ch == '"') {
+                    break
                 }
-                return json.substring(valueStart, valueEnd).trim('"', ' ')
+                pos++
             }
-            return null
-        }
-
-        val valueStart = startIndex + pattern.length
-        var valueEnd = valueStart
-        var escaped = false
-
-        while (valueEnd < json.length) {
-            val ch = json[valueEnd]
-            if (escaped) {
-                escaped = false
-            } else if (ch == '\\') {
-                escaped = true
-            } else if (ch == '"') {
-                break
+            return if (pos > valueStart) {
+                json.substring(valueStart, pos)
+                    .replace("\\n", "\n")
+                    .replace("\\r", "\r")
+                    .replace("\\t", "\t")
+                    .replace("\\\\", "\\")
+                    .replace("\\\"", "\"")
+            } else {
+                null
             }
-            valueEnd++
-        }
-
-        return if (valueEnd > valueStart) {
-            json.substring(valueStart, valueEnd)
-                .replace("\\n", "\n")
-                .replace("\\r", "\r")
-                .replace("\\t", "\t")
-                .replace("\\\\", "\\")
-                .replace("\\\"", "\"")
         } else {
-            null
+            // Примитив (boolean, number)
+            val valueStart = pos
+            while (pos < json.length) {
+                val ch = json[pos]
+                if (ch == ',' || ch == '}' || ch == ']' || ch == ' ') break
+                pos++
+            }
+            return json.substring(valueStart, pos).trim()
         }
     }
 
