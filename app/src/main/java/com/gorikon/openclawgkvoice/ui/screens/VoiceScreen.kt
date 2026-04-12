@@ -100,15 +100,9 @@ fun VoiceScreen(
                     .size(180.dp)
                     .pointerInput(Unit) {
                         detectDragGestures(
-                            onDragStart = { _ ->
+                            onDragStart = { _: androidx.compose.ui.geometry.Offset ->
                                 onStartRecording()
                                 isDraggingUp = false
-                            },
-                            onDrag = { change: androidx.compose.ui.input.pointer.PointerInputChange, dragAmount: androidx.compose.ui.geometry.Offset ->
-                                // Если свайп вверх > 50px — отменяем
-                                if (dragAmount.y < -50f) {
-                                    isDraggingUp = true
-                                }
                             },
                             onDragEnd = {
                                 if (isDraggingUp) {
@@ -120,8 +114,14 @@ fun VoiceScreen(
                             onDragCancel = {
                                 onStopRecording()
                                 isDraggingUp = false
+                            },
+                            onDrag = { change, dragAmount ->
+                                // Если свайп вверх > 50px — отменяем
+                                if (dragAmount.y < -50f) {
+                                    isDraggingUp = true
+                                }
                             }
-                        ) { _, _ -> }
+                        )
                     }
                     .clip(CircleShape)
                     .background(
