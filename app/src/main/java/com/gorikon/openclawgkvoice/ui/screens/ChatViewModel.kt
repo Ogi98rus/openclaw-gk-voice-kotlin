@@ -38,6 +38,9 @@ class ChatViewModel @Inject constructor(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
+    private val _connectionStatus = MutableStateFlow(GatewayStatus.Disconnected)
+    val connectionStatus: StateFlow<GatewayStatus> = _connectionStatus.asStateFlow()
+
     init {
         // Gateway callback для получения сообщений и аудио
         val gatewayCallback = object : GatewayCallback {

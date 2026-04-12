@@ -37,11 +37,6 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
 
-    // Инициализация ViewModel при первом входе на экран
-    LaunchedEffect(gatewayId) {
-        viewModel.initialize(gatewayId)
-    }
-
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 

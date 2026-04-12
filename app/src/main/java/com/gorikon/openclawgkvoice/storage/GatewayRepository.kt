@@ -119,7 +119,7 @@ class GatewayRepository @Inject constructor(
             // Обновляем список ID
             val idsJson = prefs[GatewayKeys.gatewayIdsListKey()] ?: "[]"
             val ids: MutableList<String> = try {
-                Json.decodeFromString(idsJson).toMutableList()
+                Json.decodeFromString<List<String>>(idsJson).toMutableList()
             } catch (e: Exception) {
                 mutableListOf()
             }
@@ -147,7 +147,7 @@ class GatewayRepository @Inject constructor(
             // Удаляем ID из списка
             val idsJson = prefs[GatewayKeys.gatewayIdsListKey()] ?: "[]"
             val ids: MutableList<String> = try {
-                Json.decodeFromString(idsJson).toMutableList()
+                Json.decodeFromString<List<String>>(idsJson).toMutableList()
             } catch (e: Exception) {
                 mutableListOf()
             }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -99,11 +100,11 @@ fun VoiceScreen(
                     .size(180.dp)
                     .pointerInput(Unit) {
                         detectDragGestures(
-                            onDragStart = {
+                            onDragStart = { _ ->
                                 onStartRecording()
                                 isDraggingUp = false
                             },
-                            onDrag = { change, dragAmount ->
+                            onDrag = { change: androidx.compose.ui.input.pointer.PointerInputChange, dragAmount: androidx.compose.ui.geometry.Offset ->
                                 // Если свайп вверх > 50px — отменяем
                                 if (dragAmount.y < -50f) {
                                     isDraggingUp = true

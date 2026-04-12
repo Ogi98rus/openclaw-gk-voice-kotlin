@@ -10,6 +10,7 @@ import com.gorikon.openclawgkvoice.gateway.GatewayCallback
 import com.gorikon.openclawgkvoice.gateway.GatewayClient
 import com.gorikon.openclawgkvoice.gateway.GatewayManager
 import com.gorikon.openclawgkvoice.gateway.GatewayStatus
+import com.gorikon.openclawgkvoice.gateway.VoiceState
 import com.gorikon.openclawgkvoice.service.VoiceRecordingService
 import com.gorikon.openclawgkvoice.util.PermissionHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -59,11 +60,13 @@ class VoiceViewModel @Inject constructor(
         override fun onAudio(data: ByteArray) {
             viewModelScope.launch {
                 try {
-                    audioPlayer.playAudio(data)
                     _voiceState.update { it.copy(isPlaying = true, statusText = "Говорит...") }
-                    audioPlayer.setOnCompletionListener {
-                        _voiceState.update { it.copy(isPlaying = false, statusText = "Нажмите для записи") }
+                    audioPlayer.play(data)
+                    // Ждём окончания воспроизведения
+                    while (audioPlayer.isCurrentlyPlaying()) {
+                        kotlinx.coroutines.delay(50)
                     }
+                    _voiceState.update { it.copy(isPlaying = false, statusText = "Нажмите для записи") }
                 } catch (e: Exception) {
                     _voiceState.update { it.copy(statusText = "Ошибка воспроизведения") }
                 }
@@ -148,7 +151,8 @@ class VoiceViewModel @Inject constructor(
                 // Запускаем ForegroundService для записи в фоне
                 VoiceRecordingService.start(context)
 
-                audioRecorder.startRecording(audioRecorderCallback)
+                audioRecorder.setCallback(audioRecorderCallback)
+                audioRecorder.startRecording()
                 _voiceState.update {
                     it.copy(
                         isRecording = true,

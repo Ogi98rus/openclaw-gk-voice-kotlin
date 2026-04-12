@@ -58,6 +58,17 @@ class AudioPlayer {
      * Данные ставятся в очередь на воспроизведение.
      */
     fun play(data: ByteArray) {
+        _playAudio(data)
+    }
+
+    /**
+     * Воспроизвести аудио-данные (алиас для play).
+     */
+    suspend fun playAudio(data: ByteArray) {
+        _playAudio(data)
+    }
+
+    private fun _playAudio(data: ByteArray) {
         if (data.isEmpty()) return
 
         // Если уже играет — дописываем данные в существующий трек
