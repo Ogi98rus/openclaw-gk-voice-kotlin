@@ -12,6 +12,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -32,12 +33,13 @@ interface GatewayCallback {
 /**
  * WebSocket-клиент для подключения к одному OpenClaw gateway'ю.
  *
- * Жизненный цикл:
- * 1. connect() — устанавливает WebSocket-соединение
- * 2. Автоматическая авторизация через sendAuth() после подключения
- * 3. Heartbeat ping/pong каждые 30 секунд
- * 4. При обрыве — автоматический reconnect с exponential backoff
- * 5. disconnect() — полное закрытие
+ * Жизненный цикл (протокол OpenClaw Gateway):
+ * 1. connect() — открывает WebSocket
+ * 2. Gateway шлёт connect.challenge с nonce
+ * 3. Клиент отвечает методом "connect" с role/scopes/auth
+ * 4. Gateway подтверждает hello-ok → считаем подключёнными
+ * 5. Heartbeat (tick) каждые 15 секунд
+ * 6. При обрыве — reconnect с exponential backoff
  */
 @Singleton
 class GatewayClient @Inject constructor(
@@ -53,45 +55,40 @@ class GatewayClient @Inject constructor(
     private var reconnectAttempts = 0
     private var isShutdown = false
 
+    // Состояние handshake
+    private var handshakeNonce: String? = null
+    private var isConnected = false  // true только после hello-ok
+
     companion object {
-        private const val HEARTBEAT_INTERVAL_MS = 30_000L       // 30 секунд
-        private const val MAX_RECONNECT_DELAY_MS = 60_000L       // Максимальная задержка — 60с
-        private const val INITIAL_RECONNECT_DELAY_MS = 1_000L    // Начальная задержка — 1с
-        private const val HEARTBEAT_TYPE = "heartbeat"
-        private const val AUTH_TYPE = "auth"
+        private const val HEARTBEAT_INTERVAL_MS = 15_000L       // 15 секунд (как просит gateway)
+        private const val MAX_RECONNECT_DELAY_MS = 60_000L
+        private const val INITIAL_RECONNECT_DELAY_MS = 1_000L
         private const val MESSAGE_TYPE = "message"
         private const val AUDIO_TYPE = "audio"
     }
 
     /**
      * Подключиться к gateway'ю.
-     * Запускает WebSocket, после подключения — автоматически отправляет авторизацию.
+     * Открывает WebSocket и ждёт connect.challenge от сервера.
      */
     fun connect(config: GatewayConfig, callback: GatewayCallback) {
         if (isShutdown) return
 
         this.currentConfig = config
         this.callback = callback
+        this.handshakeNonce = null
+        this.isConnected = false
 
-        // Обновляем статус на "Connecting"
         callback.onStatusChanged(GatewayStatus.Connecting)
 
         val request = Request.Builder()
             .url(config.url)
-            .addHeader("Authorization", "Bearer ${config.apiKey}")
             .build()
 
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                reconnectAttempts = 0 // Сбрасываем счётчик при успешном подключении
-                callback.onStatusChanged(GatewayStatus.Connected)
-                callback.onConnected()
-
-                // Отправляем авторизацию сразу после подключения
-                sendAuth(config.apiKey)
-
-                // Запускаем heartbeat
-                startHeartbeat()
+                reconnectAttempts = 0
+                // НЕ помечаем как Connected — ждём hello-ok после handshake
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -99,12 +96,12 @@ class GatewayClient @Inject constructor(
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                // Бинарные данные — считаем аудио
                 callback?.onAudio(bytes.toByteArray())
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 stopHeartbeat()
+                isConnected = false
                 callback?.onStatusChanged(GatewayStatus.Disconnected)
                 callback?.onDisconnected(code, reason)
                 scheduleReconnect()
@@ -112,6 +109,7 @@ class GatewayClient @Inject constructor(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 stopHeartbeat()
+                isConnected = false
                 callback?.onStatusChanged(GatewayStatus.Error)
                 callback?.onError(t)
                 scheduleReconnect()
@@ -121,10 +119,10 @@ class GatewayClient @Inject constructor(
 
     /**
      * Отключиться от gateway'я.
-     * Останавливает heartbeat, закрывает WebSocket, отменяет reconnect.
      */
     fun disconnect() {
         isShutdown = true
+        isConnected = false
         stopHeartbeat()
         reconnectJob?.cancel()
         reconnectJob = null
@@ -138,18 +136,10 @@ class GatewayClient @Inject constructor(
     }
 
     /**
-     * Отправить авторизационное сообщение.
-     * Формат: JSON с типом "auth" и токеном.
-     */
-    fun sendAuth(apiKey: String) {
-        val authMessage = """{"type":"$AUTH_TYPE","token":"$apiKey"}"""
-        webSocket?.send(authMessage)
-    }
-
-    /**
      * Отправить текстовое сообщение агенту.
      */
     fun sendMessage(text: String) {
+        if (!isConnected) return
         val message = """{"type":"$MESSAGE_TYPE","text":"${text.escapeJson()}"}"""
         webSocket?.send(message)
     }
@@ -158,26 +148,20 @@ class GatewayClient @Inject constructor(
      * Отправить аудио-данные (PCM 16-bit, 16kHz, mono).
      */
     fun sendAudio(data: ByteArray) {
+        if (!isConnected) return
         webSocket?.send(ByteString.of(*data))
     }
 
     /**
-     * Отправить heartbeat ping.
+     * Отправить heartbeat tick.
      */
     fun sendPing() {
-        val pingMessage = """{"type":"$HEARTBEAT_TYPE","timestamp":${System.currentTimeMillis()}}"""
-        webSocket?.send(pingMessage)
+        val tickMessage = """{"type":"tick"}"""
+        webSocket?.send(tickMessage)
     }
 
-    /**
-     * Получить текущую конфигурацию gateway'я.
-     */
     fun getCurrentConfig(): GatewayConfig? = currentConfig
 
-    /**
-     * Подключиться к активному gateway через GatewayManager.
-     * Если активный gateway есть и его статус — Disconnected или Error — подключаемся.
-     */
     fun connectToActiveGateway(
         gatewayManager: GatewayManager,
         callback: GatewayCallback
@@ -187,16 +171,12 @@ class GatewayClient @Inject constructor(
             (active.status == GatewayStatus.Disconnected || active.status == GatewayStatus.Error)) {
             connect(active, callback)
         } else if (active?.status == GatewayStatus.Connected) {
-            // Уже подключён — просто обновляем callback
             this.callback = callback
             callback.onStatusChanged(GatewayStatus.Connected)
             callback.onConnected()
         }
     }
 
-    /**
-     * Освободить ресурсы.
-     */
     fun shutdown() {
         disconnect()
         scope.cancel()
@@ -206,64 +186,132 @@ class GatewayClient @Inject constructor(
 
     /**
      * Обработка входящего текстового сообщения.
-     * Парсит JSON и вызывает соответствующий callback.
      *
-     * Поддерживаемые форматы:
-     * - {"type":"message","text":"..."} → callback.onMessage(text)
-     * - {"type":"status","text":"..."} → callback.onMessage(status text)
-     * - Любой другой JSON или plain text → callback.onMessage(text)
-     * - heartbeat/pong — игнорируем
+     * Протокол OpenClaw Gateway:
+     * 1. connect.challenge → сохраняем nonce, отправляем connect
+     * 2. hello-ok → считаем подключёнными, запускаем heartbeat
+     * 3. event → обрабатываем как событие (message, status, и т.д.)
+     * 4. tick → ответ на наш heartbeat (игнорируем)
      */
     private fun handleIncomingText(text: String) {
-        // Heartbeat pong — игнорируем
-        if (text.contains("\"type\":\"heartbeat\"") || text.contains("\"type\":\"pong\"")) {
-            return
-        }
-
-        // Пробуем распарсить как JSON и извлечь type + text
-        val callback = this.callback ?: return
+        val cb = this.callback ?: return
 
         try {
             val type = extractJsonField(text, "type")
-            val messageText = extractJsonField(text, "text")
+            val event = extractJsonField(text, "event")
 
-            when (type) {
-                "message" -> {
-                    // Текстовый ответ агента
+            when {
+                // Gateway шлёт challenge — надо ответить connect
+                type == "event" && event == "connect.challenge" -> {
+                    handleChallenge(text)
+                }
+
+                // Gateway подтвердил подключение
+                type == "res" && extractJsonField(text, "ok") == "true" -> {
+                    handleHelloOk(text)
+                }
+
+                // Heartbeat tick от сервера — игнорируем
+                type == "tick" || event == "tick" -> {
+                    // no-op
+                }
+
+                // Обычное сообщение от агента
+                type == "event" || type == "message" || type == "req" -> {
+                    val messageText = extractJsonField(text, "text")
                     if (messageText != null) {
-                        callback.onMessage(messageText)
+                        cb.onMessage(messageText)
                     } else {
-                        callback.onMessage(text)
+                        // Может быть аудио-событие или другое
+                        cb.onMessage(text)
                     }
                 }
-                "status" -> {
-                    // Статусное сообщение — тоже передаём как текст
-                    if (messageText != null) {
-                        callback.onMessage(messageText)
-                    } else {
-                        callback.onMessage(text)
-                    }
-                }
+
                 else -> {
-                    // Неизвестный тип или plain text — передаём как есть
-                    callback.onMessage(text)
+                    // Fallback — передаём как есть
+                    cb.onMessage(text)
                 }
             }
         } catch (e: Exception) {
-            // Если не удалось распарсить — передаём raw текст
-            callback.onMessage(text)
+            cb.onMessage(text)
         }
     }
 
     /**
-     * Извлечь значение строкового поля из простого JSON.
-     * Без полного парсинга — просто ищем "key":"value" паттерн.
-     * Работает для flat JSON объектов.
+     * Обработка connect.challenge — извлекаем nonce и отправляем connect.
+     */
+    private fun handleChallenge(json: String) {
+        val nonce = extractJsonField(json, "nonce")
+        if (nonce == null) {
+            callback?.onError(IllegalStateException("No nonce in challenge"))
+            return
+        }
+
+        handshakeNonce = nonce
+        sendConnect(currentConfig?.apiKey ?: "", nonce)
+    }
+
+    /**
+     * Отправка connect запроса после получения challenge.
+     */
+    private fun sendConnect(apiKey: String, nonce: String) {
+        val connectId = UUID.randomUUID().toString()
+        val connectMessage = """{
+            "type":"req",
+            "id":"$connectId",
+            "method":"connect",
+            "params":{
+                "minProtocol":3,
+                "maxProtocol":3,
+                "client":{
+                    "id":"gk-voice-android",
+                    "version":"1.0.0",
+                    "platform":"android",
+                    "mode":"operator"
+                },
+                "role":"operator",
+                "scopes":["operator.read","operator.write"],
+                "auth":{"token":"$apiKey"}
+            }
+        }""".trimIndent().replace("\n", "").replace(" ", "")
+
+        webSocket?.send(connectMessage)
+    }
+
+    /**
+     * Обработка hello-ok — подключение установлено.
+     */
+    private fun handleHelloOk(json: String) {
+        isConnected = true
+        reconnectAttempts = 0
+        callback?.onStatusChanged(GatewayStatus.Connected)
+        callback?.onConnected()
+        startHeartbeat()
+    }
+
+    /**
+     * Извлечь значение строкового поля из JSON.
      */
     private fun extractJsonField(json: String, key: String): String? {
         val pattern = "\"${key}\"\\s*:\\s*\""
         val startIndex = json.indexOf(pattern)
-        if (startIndex == -1) return null
+        if (startIndex == -1) {
+            // Пробуем без кавычек (для boolean/numbers)
+            val patternNoQuote = "\"${key}\"\\s*:\\s*"
+            val startIndex2 = json.indexOf(patternNoQuote)
+            if (startIndex2 != -1) {
+                val valueStart = startIndex2 + patternNoQuote.length
+                // Читаем до запятой или закрывающей скобки
+                var valueEnd = valueStart
+                while (valueEnd < json.length) {
+                    val ch = json[valueEnd]
+                    if (ch == ',' || ch == '}' || ch == ']' || ch == ' ') break
+                    valueEnd++
+                }
+                return json.substring(valueStart, valueEnd).trim('"', ' ')
+            }
+            return null
+        }
 
         val valueStart = startIndex + pattern.length
         var valueEnd = valueStart
@@ -294,7 +342,7 @@ class GatewayClient @Inject constructor(
     }
 
     /**
-     * Запуск heartbeat с периодическим ping каждые 30 секунд.
+     * Запуск heartbeat — каждые 15 секунд.
      */
     private fun startHeartbeat() {
         heartbeatJob?.cancel()
@@ -312,8 +360,7 @@ class GatewayClient @Inject constructor(
     }
 
     /**
-     * Запланировать переподключение с exponential backoff.
-     * Задержка: 1с, 2с, 4с, 8с, ... (макс 60с).
+     * Переподключение с exponential backoff.
      */
     private fun scheduleReconnect() {
         if (isShutdown || currentConfig == null) return
@@ -326,7 +373,6 @@ class GatewayClient @Inject constructor(
             delay(delayMs)
             reconnectAttempts++
 
-            // Переподключаемся
             currentConfig?.let { config ->
                 connect(config, callback ?: return@let)
             }
