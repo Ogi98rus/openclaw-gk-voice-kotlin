@@ -98,8 +98,16 @@ class GatewayManager @Inject constructor(
 
         // Отключаемся от текущего и подключаемся к новому
         Log.d(TAG, "Disconnecting current, connecting to new...")
-        gatewayClient.disconnect()
-        gatewayClient.connect(gateway, callback)
+        val currentConfig = gatewayClient.getCurrentConfig()
+        // НЕ disconnect если уже подключаемся к тому же gateway (избегаем race condition)
+        if (currentConfig?.id == gateway.id && currentConfig.status == GatewayStatus.Connecting) {
+            Log.d(TAG, "Already connecting to this gateway, skipping disconnect")
+            // Просто обновляем callback
+            gatewayClient.updateCallback(callback)
+        } else {
+            gatewayClient.disconnect()
+            gatewayClient.connect(gateway, callback)
+        }
     }
 
     /**

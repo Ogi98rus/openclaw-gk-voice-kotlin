@@ -57,6 +57,7 @@ class GatewayClient @Inject constructor(
     private var currentConfig: GatewayConfig? = null
     private var reconnectAttempts = 0
     private var isShutdown = false
+    private var isConnecting = false  // true между connect() и hello-ok
 
     // Состояние handshake
     private var handshakeNonce: String? = null
@@ -80,7 +81,37 @@ class GatewayClient @Inject constructor(
             return
         }
 
+        // Если handshake уже в процессе — не создаём дубликат
+        // Проверяем isConnecting, т.к. disconnect() может обнулить webSocket
+        if (isConnecting && !isConnected) {
+            Log.w(TAG, "connect() called but handshake in progress (isConnecting=true), ignoring duplicate")
+            return
+        }
+
+        // Если уже подключены к тому же gateway — ничего не делаем
+        if (isConnected && currentConfig?.url == config.url) {
+            Log.w(TAG, "connect() called but already connected to same gateway, ignoring")
+            return
+        }
+
         Log.d(TAG, "connect() called: url=${config.url}, name=${config.name}")
+        
+        // Если уже подключены к тому же gateway — ничего не делаем
+        if (isConnected && currentConfig?.url == config.url) {
+            Log.w(TAG, "connect() called but already connected to same gateway, ignoring")
+            return
+        }
+        
+        // Закрываем предыдущий WebSocket если есть
+        if (webSocket != null) {
+            Log.w(TAG, "connect() called with existing WebSocket, closing first")
+            webSocket?.close(1000, "Reconnecting")
+            webSocket = null
+        }
+        stopHeartbeat()
+        reconnectJob?.cancel()
+        reconnectJob = null
+        
         this.currentConfig = config
         this.callback = callback
         this.handshakeNonce = null
@@ -135,8 +166,10 @@ class GatewayClient @Inject constructor(
      * Отключиться от gateway'я.
      */
     fun disconnect() {
-        isShutdown = false  // Сбрасываем, чтобы connect() мог работать снова
         isConnected = false
+        isConnecting = false  // Сбрасываем флаг подключения
+        // НЕ ставим isShutdown = true — это блокирует reconnect!
+        // isShutdown только в shutdown() когда реально выключаем клиент
         stopHeartbeat()
         reconnectJob?.cancel()
         reconnectJob = null
@@ -147,6 +180,8 @@ class GatewayClient @Inject constructor(
         webSocket?.close(1000, "Client disconnected")
         webSocket = null
         callback?.onStatusChanged(GatewayStatus.Disconnected)
+        // НЕ обнуляем callback — он может понадобиться для обработки входящих сообщений
+        // и будет обновлён при следующем connect()
     }
 
     /**
@@ -184,6 +219,13 @@ class GatewayClient @Inject constructor(
 
     fun getCurrentConfig(): GatewayConfig? = currentConfig
 
+    /**
+     * Обновить callback (используется при reconnect к тому же gateway).
+     */
+    fun updateCallback(callback: GatewayCallback) {
+        this.callback = callback
+    }
+
     fun connectToActiveGateway(
         gatewayManager: GatewayManager,
         callback: GatewayCallback
@@ -216,11 +258,16 @@ class GatewayClient @Inject constructor(
      * 4. tick → ответ на наш heartbeat (игнорируем)
      */
     private fun handleIncomingText(text: String) {
-        val cb = this.callback ?: return
+        val cb = this.callback
+        if (cb == null) {
+            Log.w(TAG, "handleIncomingText: callback is null! message: ${text.take(80)}")
+            return
+        }
 
         try {
             val type = extractJsonField(text, "type")
             val event = extractJsonField(text, "event")
+            Log.d(TAG, "handleIncomingText: type=$type, event=$event")
 
             when {
                 // Gateway шлёт challenge — надо ответить connect
