@@ -192,7 +192,8 @@ class GatewayClient @Inject constructor(
             Log.w(TAG, "sendMessage called but not connected")
             return
         }
-        val message = """{"type":"$MESSAGE_TYPE","text":"${text.escapeJson()}"}"""
+        val msgId = UUID.randomUUID().toString()
+        val message = """{"type":"$MESSAGE_TYPE","id":"$msgId","text":"${text.escapeJson()}"}"""
         Log.d(TAG, "sendMessage: ${text.take(50)}")
         webSocket?.send(message)
     }
