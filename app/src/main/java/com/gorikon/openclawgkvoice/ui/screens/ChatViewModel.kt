@@ -94,8 +94,8 @@ class ChatViewModel @Inject constructor(
                 if (gateway.status != GatewayStatus.Connected) {
                     gatewayManager.selectGateway(gatewayId, gatewayCallback)
                 } else {
-                    // Уже подключён — подписываемся
-                    gatewayClient.connect(gateway, gatewayCallback)
+                    // Уже подключён — просто обновляем callback
+                    gatewayClient.updateCallback(gatewayCallback)
                 }
             }
         }

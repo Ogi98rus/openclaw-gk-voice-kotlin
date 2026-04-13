@@ -208,7 +208,8 @@ class VoiceViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         audioRecorder.stopRecording()
-        gatewayClient.disconnect()
+        // НЕ disconnect! — GatewayClient общий для всех экранов,
+        // disconnect только при explicit удалении gateway или shutdown приложения
         audioPlayer.release()
     }
 }
