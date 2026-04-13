@@ -51,12 +51,22 @@ class ChatViewModel @Inject constructor(
             override fun onDisconnected(code: Int, reason: String) {}
 
             override fun onMessage(text: String) {
+                // Игнорируем протокольные сообщения gateway
+                val type = extractTopLevelField(text, "type")
+                val event = extractTopLevelField(text, "event")
+                val ok = extractTopLevelField(text, "ok")
+                
+                if (type == "event" || type == "res" || type == "req" || ok != null) {
+                    // Это протокольное сообщение — игнорируем
+                    return
+                }
+                
                 // Текстовый ответ от агента
                 val chatMsg = parseMessage(text)
                 if (chatMsg != null) {
                     _messages.value += chatMsg
                 } else {
-                    // Если не распарсился как JSON — просто текст
+                    // Если не распарсился как JSON — просто текст от агента
                     _messages.value += ChatMessage(
                         gatewayId = gatewayId,
                         text = text,
@@ -167,3 +177,38 @@ private fun String.unescapeJson(): String =
         .replace("\\r", "\r")
         .replace("\\t", "\t")
         .replace("\\\\", "\\")
+
+/**
+ * Извлечь значение верхнеуровневого поля JSON (просто для фильтрации).
+ */
+private fun extractTopLevelField(json: String, key: String): String? {
+    val pattern = "\"$key\":"
+    val idx = json.indexOf(pattern)
+    if (idx == -1) return null
+    var pos = idx + pattern.length
+    while (pos < json.length && (json[pos] == ' ' || json[pos] == '\t')) pos++
+    if (pos >= json.length) return null
+    
+    if (json[pos] == '"') {
+        // Строка
+        pos++
+        val start = pos
+        var escaped = false
+        while (pos < json.length) {
+            if (escaped) { escaped = false }
+            else if (json[pos] == '\\') { escaped = true }
+            else if (json[pos] == '"') { break }
+            pos++
+        }
+        return if (pos > start) json.substring(start, pos) else null
+    } else {
+        // Примитив
+        val start = pos
+        while (pos < json.length) {
+            val ch = json[pos]
+            if (ch == ',' || ch == '}' || ch == ']' || ch == ' ') break
+            pos++
+        }
+        return json.substring(start, pos).trim()
+    }
+}
