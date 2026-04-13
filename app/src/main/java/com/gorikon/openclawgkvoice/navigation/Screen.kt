@@ -6,21 +6,21 @@ package com.gorikon.openclawgkvoice.navigation
  */
 sealed class Screen(val route: String) {
     data object Home : Screen("home")
-    data object AddGateway : Screen("add_gateway")
+    data object Pairing : Screen("pairing")
     data object Settings : Screen("settings")
 
     // Экраны с параметрами
-    data class Chat(val gatewayId: String) : Screen("chat/$gatewayId") {
+    data class Chat(val conversationId: String) : Screen("chat/$conversationId") {
         companion object {
-            const val ROUTE_PATTERN = "chat/{gatewayId}"
-            fun createRoute(gatewayId: String) = "chat/$gatewayId"
+            const val ROUTE_PATTERN = "chat/{conversationId}"
+            fun createRoute(conversationId: String) = "chat/$conversationId"
         }
     }
 
-    data class Voice(val gatewayId: String) : Screen("voice/$gatewayId") {
+    data class Voice(val conversationId: String) : Screen("voice/$conversationId") {
         companion object {
-            const val ROUTE_PATTERN = "voice/{gatewayId}"
-            fun createRoute(gatewayId: String) = "voice/$gatewayId"
+            const val ROUTE_PATTERN = "voice/{conversationId}"
+            fun createRoute(conversationId: String) = "voice/$conversationId"
         }
     }
 }

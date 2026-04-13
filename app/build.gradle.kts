@@ -50,6 +50,15 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // libsodium JNI native libs
+            jniLibs {
+                pickFirsts += listOf(
+                    "lib/arm64-v8a/libsodium.so",
+                    "lib/armeabi-v7a/libsodium.so",
+                    "lib/x86/libsodium.so",
+                    "lib/x86_64/libsodium.so"
+                )
+            }
         }
     }
 }
@@ -95,8 +104,14 @@ dependencies {
     ksp("com.google.dagger:hilt-compiler:2.52")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
-    // EncryptedSharedPreferences
+    // EncryptedSharedPreferences (для JWT токена)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // QR Code Scanner (ZXing)
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
+    // Libsodium (X25519 sealed box encryption)
+    implementation("com.github.joshjdevl.libsodiumjni:libsodium-jni-aar:2.0.2")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

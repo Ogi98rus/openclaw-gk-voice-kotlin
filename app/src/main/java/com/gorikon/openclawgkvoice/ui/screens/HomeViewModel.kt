@@ -3,116 +3,172 @@ package com.gorikon.openclawgkvoice.ui.screens
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.gorikon.openclawgkvoice.gateway.GatewayCallback
-import com.gorikon.openclawgkvoice.gateway.GatewayConfig
-import com.gorikon.openclawgkvoice.gateway.GatewayManager
-import com.gorikon.openclawgkvoice.gateway.GatewayStatus
-import com.gorikon.openclawgkvoice.storage.GatewayRepository
+import com.gorikon.openclawgkvoice.auth.AuthRepository
+import com.gorikon.openclawgkvoice.crypto.CryptoManager
+import com.gorikon.openclawgkvoice.messenger.Conversation
+import com.gorikon.openclawgkvoice.messenger.MessengerClient
+import com.gorikon.openclawgkvoice.messenger.MessengerEvent
+import com.gorikon.openclawgkvoice.messenger.MessengerStatus
+import com.gorikon.openclawgkvoice.storage.ServerRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 private const val TAG = "HomeViewModel"
 
 /**
- * ViewModel главного экрана — управление списком gateway'ев.
+ * ViewModel главного экрана — список conversations + статус подключения.
+ *
+ * Использует новый Messenger Server (один сервер, E2E шифрование, conversations).
+ * Старая концепция "gateway-ев" полностью убрана.
  */
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val gatewayManager: GatewayManager,
-    private val gatewayRepository: GatewayRepository
+    private val messengerClient: MessengerClient,
+    private val authRepository: AuthRepository,
+    private val cryptoManager: CryptoManager,
+    private val serverRepository: ServerRepository
 ) : ViewModel() {
 
-    val gateways: StateFlow<List<GatewayConfig>> = gatewayManager.gateways
-    val activeGateway: StateFlow<GatewayConfig?> = gatewayManager.activeGateway
+    // Список конверсаций
+    private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
+    val conversations: StateFlow<List<Conversation>> = _conversations.asStateFlow()
 
-    // Gateway callback для обработки событий подключения
-    private val gatewayCallback = object : GatewayCallback {
-        override fun onConnected() {}
-        override fun onDisconnected(code: Int, reason: String) {}
-        override fun onMessage(text: String) {}
-        override fun onAudio(data: ByteArray) {}
-        override fun onError(error: Throwable) {}
-        override fun onStatusChanged(status: GatewayStatus) {
-            // Обновляем статус в менеджере
-            gatewayManager.activeGateway.value?.let { gw ->
-                gatewayManager.updateGatewayStatus(gw.id, status)
-                // Также сохраняем в репозиторий
-                viewModelScope.launch {
-                    gatewayRepository.updateGatewayStatus(gw.id, status)
-                }
-            }
-        }
-    }
+    // Статус подключения к серверу
+    private val _connectionStatus = MutableStateFlow(MessengerStatus.Disconnected)
+    val connectionStatus: StateFlow<MessengerStatus> = _connectionStatus.asStateFlow()
 
     init {
-        Log.d(TAG, "HomeViewModel init — loading gateways")
-        // Загружаем сохранённые gateway'и при старте
+        Log.d(TAG, "HomeViewModel init")
+        collectEvents()
+        collectStatus()
+        attemptAutoConnect()
+    }
+
+    /**
+     * Слушаем события от MessengerClient.
+     */
+    private fun collectEvents() {
+        viewModelScope.launch {
+            messengerClient.events.collect { event ->
+                when (event) {
+                    is MessengerEvent.Connected -> {
+                        Log.d(TAG, "Connected: ${event.message}")
+                        // После подключения запрашиваем список конверсаций
+                        messengerClient.requestConversationList()
+                    }
+
+                    is MessengerEvent.Disconnected -> {
+                        Log.d(TAG, "Disconnected: ${event.code} ${event.reason}")
+                    }
+
+                    is MessengerEvent.Error -> {
+                        Log.e(TAG, "Error: ${event.message}")
+                    }
+
+                    is MessengerEvent.ConversationList -> {
+                        Log.d(TAG, "Conversation list: ${event.conversations.size}")
+                        _conversations.value = event.conversations
+                    }
+
+                    is MessengerEvent.ConversationCreated -> {
+                        Log.d(TAG, "Conversation created: ${event.conversation.title}")
+                        _conversations.update { current ->
+                            current + event.conversation
+                        }
+                    }
+
+                    is MessengerEvent.ConversationDeleted -> {
+                        Log.d(TAG, "Conversation deleted: ${event.id}")
+                        _conversations.update { current ->
+                            current.filter { it.id != event.id }
+                        }
+                    }
+
+                    is MessengerEvent.ConversationTitle -> {
+                        Log.d(TAG, "Conversation title changed: ${event.id} -> ${event.title}")
+                        _conversations.update { current ->
+                            current.map { conv ->
+                                if (conv.id == event.id) conv.copy(title = event.title) else conv
+                            }
+                        }
+                    }
+
+                    // Остальные события (MessageReceived, MessageHistory, Typing) обрабатываются
+                    // в соответствующих ViewModel экрана чата
+                    is MessengerEvent.MessageReceived,
+                    is MessengerEvent.MessageHistory,
+                    is MessengerEvent.Typing,
+                    is MessengerEvent.Pong -> Unit // Игнорируем на главном экране
+                }
+            }
+        }
+    }
+
+    /**
+     * Слушаем статус подключения.
+     */
+    private fun collectStatus() {
+        viewModelScope.launch {
+            messengerClient.status.collect { status ->
+                Log.d(TAG, "Connection status: $status")
+                _connectionStatus.value = status
+            }
+        }
+    }
+
+    /**
+     * Автоподключение если есть сохранённые credentials и serverUrl.
+     */
+    private fun attemptAutoConnect() {
         viewModelScope.launch {
             try {
-                val saved = gatewayRepository.getGateways()
-                Log.d(TAG, "Loaded ${saved.size} gateway(s): ${saved.map { it.name }}")
-                gatewayManager.loadGateways(saved)
+                val credentials = authRepository.loadCredentials()
+                val serverUrl = serverRepository.getServerUrl()
 
-                // Если есть активный gateway — автоматически подключаемся
-                val active = saved.find { it.isActive }
-                if (active != null) {
-                    Log.d(TAG, "Auto-connecting to active: ${active.name} (${active.url})")
-                    gatewayManager.selectGateway(active.id, gatewayCallback)
+                if (credentials != null && serverUrl != null) {
+                    Log.d(TAG, "Auto-connecting to $serverUrl")
+                    messengerClient.connect(serverUrl, credentials.token)
                 } else {
-                    Log.d(TAG, "No active gateway found")
+                    Log.d(TAG, "No credentials or serverUrl — not auto-connecting")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading gateways", e)
+                Log.e(TAG, "Auto-connect error", e)
             }
         }
     }
 
     /**
-     * Выбрать gateway как активный и подключиться.
+     * Создать новую конверсацию.
      */
-    fun selectGateway(gatewayId: String) {
-        Log.d(TAG, "selectGateway called: $gatewayId")
-        gatewayManager.selectGateway(gatewayId, gatewayCallback)
+    fun createConversation(title: String) {
+        if (title.isBlank()) return
+        Log.d(TAG, "createConversation: $title")
+        messengerClient.createConversation(title)
     }
 
     /**
-     * Удалить gateway из списка.
+     * Удалить конверсацию.
      */
-    fun deleteGateway(gatewayId: String) {
-        viewModelScope.launch {
-            gatewayRepository.deleteGateway(gatewayId)
-            gatewayManager.removeGateway(gatewayId)
-        }
+    fun deleteConversation(conversationId: String) {
+        Log.d(TAG, "deleteConversation: $conversationId")
+        messengerClient.deleteConversation(conversationId)
     }
 
     /**
-     * Добавить новый gateway (вызывается из AddGatewayScreen).
+     * Выйти — очистить credentials и отключиться.
      */
-    fun addGateway(config: GatewayConfig) {
-        Log.d(TAG, "addGateway called: ${config.name} url=${config.url}")
+    fun logout() {
+        Log.d(TAG, "logout")
         viewModelScope.launch {
-            try {
-                // Сначала добавляем в менеджере — он может пометить первый gateway как isActive
-                gatewayManager.addGateway(config)
-
-                // Получаем фактический конфиг (с потенциально изменённым isActive)
-                val addedGateway = gateways.value.find { it.id == config.id } ?: config
-                Log.d(TAG, "Added gateway, isActive=${addedGateway.isActive}")
-
-                // Сохраняем в репозиторий с актуальным isActive
-                gatewayRepository.saveGateway(addedGateway)
-                Log.d(TAG, "Saved gateway to repository")
-
-                // Если gateway стал активным — подключаемся
-                if (addedGateway.isActive) {
-                    Log.d(TAG, "Auto-selecting gateway: ${config.id}")
-                    gatewayManager.selectGateway(config.id, gatewayCallback)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error adding gateway", e)
-            }
+            messengerClient.disconnect()
+            authRepository.clearCredentials()
+            serverRepository.clearServerUrl()
+            _conversations.value = emptyList()
         }
     }
 }

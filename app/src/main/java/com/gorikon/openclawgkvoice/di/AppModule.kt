@@ -1,13 +1,10 @@
 package com.gorikon.openclawgkvoice.di
 
 import android.content.Context
-import android.content.SharedPreferences
 import com.gorikon.openclawgkvoice.audio.AudioPlayer
 import com.gorikon.openclawgkvoice.audio.AudioRecorder
-import com.gorikon.openclawgkvoice.gateway.GatewayClient
-import com.gorikon.openclawgkvoice.gateway.GatewayManager
-import com.gorikon.openclawgkvoice.storage.EncryptedPrefsFactory
-import com.gorikon.openclawgkvoice.storage.GatewayRepository
+import com.gorikon.openclawgkvoice.crypto.CryptoManager
+import com.gorikon.openclawgkvoice.messenger.MessengerClient
 import com.gorikon.openclawgkvoice.storage.SettingsRepository
 import dagger.Module
 import dagger.Provides
@@ -48,50 +45,24 @@ object AppModule {
     }
 
     /**
-     * EncryptedSharedPreferences для хранения API ключей.
-     * MasterKey генерируется в Android Keystore (AES256_GCM).
+     * CryptoManager — libsodium X25519 sealed box.
      */
     @Provides
     @Singleton
-    fun provideEncryptedSharedPreferences(
-        @ApplicationContext context: Context
-    ): SharedPreferences {
-        return EncryptedPrefsFactory.create(context)
+    fun provideCryptoManager(): CryptoManager {
+        return CryptoManager()
     }
 
     /**
-     * GatewayClient — WebSocket клиент.
+     * MessengerClient — WebSocket клиент для Messenger Server.
      */
     @Provides
     @Singleton
-    fun provideGatewayClient(
-        okHttpClient: OkHttpClient
-    ): GatewayClient {
-        return GatewayClient(okHttpClient)
-    }
-
-    /**
-     * GatewayManager — мультигейтвей менеджер.
-     * GatewayRepository инжектится в HomeViewModel напрямую (не через GatewayManager).
-     */
-    @Provides
-    @Singleton
-    fun provideGatewayManager(
-        gatewayClient: GatewayClient
-    ): GatewayManager {
-        return GatewayManager(gatewayClient)
-    }
-
-    /**
-     * GatewayRepository — хранилище gateway конфигов.
-     */
-    @Provides
-    @Singleton
-    fun provideGatewayRepository(
-        @ApplicationContext context: Context,
-        encryptedPrefs: SharedPreferences
-    ): GatewayRepository {
-        return GatewayRepository(context, encryptedPrefs)
+    fun provideMessengerClient(
+        okHttpClient: OkHttpClient,
+        cryptoManager: CryptoManager
+    ): MessengerClient {
+        return MessengerClient(okHttpClient, cryptoManager)
     }
 
     /**

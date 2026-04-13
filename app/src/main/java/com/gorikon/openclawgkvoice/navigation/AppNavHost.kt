@@ -2,7 +2,6 @@ package com.gorikon.openclawgkvoice.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -10,80 +9,77 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.gorikon.openclawgkvoice.ui.screens.AddGatewayScreen
 import com.gorikon.openclawgkvoice.ui.screens.ChatScreen
 import com.gorikon.openclawgkvoice.ui.screens.ChatViewModel
 import com.gorikon.openclawgkvoice.ui.screens.HomeScreen
 import com.gorikon.openclawgkvoice.ui.screens.HomeViewModel
+import com.gorikon.openclawgkvoice.ui.screens.PairingScreen
 import com.gorikon.openclawgkvoice.ui.screens.SettingsScreen
 import com.gorikon.openclawgkvoice.ui.screens.SettingsViewModel
 import com.gorikon.openclawgkvoice.ui.screens.VoiceScreen
-import com.gorikon.openclawgkvoice.ui.screens.VoiceViewModel
 
 /**
  * Корневой NavHost приложения.
  * Управляет переходами между экранами через Jetpack Compose Navigation.
  */
 @Composable
-fun AppNavHost() {
+fun AppNavHost(
+    startDestination: String = Screen.Home.route
+) {
     val navController = rememberNavController()
 
     NavHost(
         navController = navController,
-        startDestination = Screen.Home.route
+        startDestination = startDestination
     ) {
-        // Home — список gateway'ев
+        // Home — список конверсаций
         composable(Screen.Home.route) {
             val viewModel: HomeViewModel = hiltViewModel()
-            val gateways by viewModel.gateways.collectAsStateWithLifecycle()
-            val activeGateway by viewModel.activeGateway.collectAsStateWithLifecycle()
+            val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+            val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
 
             HomeScreen(
-                gateways = gateways,
-                activeGateway = activeGateway,
-                onAddGateway = { navController.navigate(Screen.AddGateway.route) },
+                conversations = conversations,
+                connectionStatus = connectionStatus,
+                onCreateConversation = { title -> viewModel.createConversation(title) },
+                onDeleteConversation = { id -> viewModel.deleteConversation(id) },
+                onChatClick = { conversationId ->
+                    navController.navigate(Screen.Chat.createRoute(conversationId))
+                },
+                onVoiceClick = { conversationId ->
+                    navController.navigate(Screen.Voice.createRoute(conversationId))
+                },
                 onSettingsClick = { navController.navigate(Screen.Settings.route) },
-                onSelectGateway = { gatewayId ->
-                    viewModel.selectGateway(gatewayId)
-                },
-                onChatClick = { gatewayId ->
-                    navController.navigate(Screen.Chat.createRoute(gatewayId))
-                },
-                onVoiceClick = { gatewayId ->
-                    navController.navigate(Screen.Voice.createRoute(gatewayId))
-                },
-                onDeleteGateway = { gatewayId ->
-                    viewModel.deleteGateway(gatewayId)
+                onLogout = {
+                    viewModel.logout()
+                    navController.navigate(Screen.Pairing.route) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                    }
                 }
             )
         }
 
-        // Add Gateway — форма добавления
-        composable(Screen.AddGateway.route) {
-            // Берём HomeViewModel из родительского backStack entry для общего состояния
-            val parentEntry = remember(it) { navController.getBackStackEntry(Screen.Home.route) }
-            val homeViewModel: HomeViewModel = hiltViewModel(parentEntry)
-            AddGatewayScreen(
-                onBack = { navController.popBackStack() },
-                onSave = { config ->
-                    homeViewModel.addGateway(config)
-                    navController.popBackStack()
+        // Pairing — экран сопряжения
+        composable(Screen.Pairing.route) {
+            PairingScreen(
+                onPairingSuccess = {
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Pairing.route) { inclusive = true }
+                    }
                 }
             )
         }
 
-        // Chat — текстовый чат с агентом
+        // Chat — текстовый чат
         composable(
             route = Screen.Chat.ROUTE_PATTERN,
-            arguments = listOf(navArgument("gatewayId") { type = NavType.StringType })
+            arguments = listOf(navArgument("conversationId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val gatewayId = backStackEntry.arguments?.getString("gatewayId") ?: return@composable
-            val viewModel: ChatViewModel = hiltViewModel(
-                key = gatewayId // Уникальный ключ для каждого gateway — разные ViewModel
-            )
+            val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
+            val viewModel: ChatViewModel = hiltViewModel(key = conversationId)
 
             ChatScreen(
-                gatewayId = gatewayId,
+                conversationId = conversationId,
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onSendMessage = { text -> viewModel.sendMessage(text) }
@@ -93,21 +89,12 @@ fun AppNavHost() {
         // Voice — голосовой экран
         composable(
             route = Screen.Voice.ROUTE_PATTERN,
-            arguments = listOf(navArgument("gatewayId") { type = NavType.StringType })
+            arguments = listOf(navArgument("conversationId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val gatewayId = backStackEntry.arguments?.getString("gatewayId") ?: return@composable
-            val viewModel: VoiceViewModel = hiltViewModel(
-                key = gatewayId // Уникальный ключ для каждого gateway
-            )
-            val voiceState by viewModel.voiceState.collectAsStateWithLifecycle()
-
+            val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
             VoiceScreen(
-                gatewayId = gatewayId,
-                voiceState = voiceState,
-                onBack = { navController.popBackStack() },
-                onStartRecording = { viewModel.startRecording() },
-                onStopRecording = { viewModel.stopRecording() },
-                onPauseRecording = { viewModel.pauseRecording() }
+                conversationId = conversationId,
+                onBack = { navController.popBackStack() }
             )
         }
 
