@@ -26,7 +26,8 @@
         android:theme="@style/Theme.OpenClawGKVoice"
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config"
-        tools:targetApi="35">
+        tools:targetApi="35"
+        tools:replace="android:allowBackup">
 
         <activity
             android:name=".MainActivity"
