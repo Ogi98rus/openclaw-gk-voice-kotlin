@@ -2,8 +2,9 @@ package com.gorikon.openclawgkvoice.ui.screens
 
 import android.util.Base64
 import android.util.Log
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gorikon.openclawgkvoice.audio.AudioPlayer
 import com.gorikon.openclawgkvoice.audio.AudioRecorder
@@ -50,13 +51,14 @@ data class VoiceState(
  */
 @HiltViewModel
 class VoiceViewModel @Inject constructor(
+    application: Application,
     savedStateHandle: SavedStateHandle,
     private val messengerClient: MessengerClient,
     private val authRepository: AuthRepository,
     private val cryptoManager: CryptoManager,
     private val audioRecorder: AudioRecorder,
     private val audioPlayer: AudioPlayer
-) : ViewModel() {
+) : AndroidViewModel(application) {
 
     private val conversationId: String = checkNotNull(savedStateHandle["conversationId"])
 

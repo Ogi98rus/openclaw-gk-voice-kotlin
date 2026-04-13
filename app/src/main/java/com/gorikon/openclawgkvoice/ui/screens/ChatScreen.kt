@@ -14,8 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.gorikon.openclawgkvoice.gateway.ChatMessage
-import com.gorikon.openclawgkvoice.gateway.GatewayStatus
 
 /**
  * Экран текстового чата с агентом.
@@ -28,14 +26,13 @@ import com.gorikon.openclawgkvoice.gateway.GatewayStatus
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    gatewayId: String,
+    conversationId: String,
     viewModel: ChatViewModel,
     onBack: () -> Unit,
     onSendMessage: (String) -> Unit
 ) {
     // Подписка на StateFlow сообщений — автоматически обновляется при изменении
     val messages by viewModel.messages.collectAsStateWithLifecycle()
-    val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -58,19 +55,7 @@ fun ChatScreen(
                         )
                     }
                 },
-                title = { Text("Чат") },
-                actions = {
-                    // Индикатор статуса подключения
-                    Text(
-                        text = when (connectionStatus) {
-                            GatewayStatus.Connected -> "🟢"
-                            GatewayStatus.Connecting -> "🟡"
-                            GatewayStatus.Error -> "🔴"
-                            GatewayStatus.Disconnected -> "⚫"
-                        },
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
+                title = { Text("Чат") }
             )
         },
         bottomBar = {
@@ -90,19 +75,18 @@ fun ChatScreen(
                         modifier = Modifier.weight(1f),
                         placeholder = { Text("Введите сообщение...") },
                         singleLine = false,
-                        maxLines = 4,
-                        enabled = connectionStatus == GatewayStatus.Connected
+                        maxLines = 4
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     // Кнопка отправки
                     FloatingActionButton(
                         onClick = {
-                            if (inputText.isNotBlank() && connectionStatus == GatewayStatus.Connected) {
+                            if (inputText.isNotBlank()) {
                                 onSendMessage(inputText.trim())
                                 inputText = ""
                             }
                         },
-                        containerColor = if (inputText.isNotBlank() && connectionStatus == GatewayStatus.Connected)
+                        containerColor = if (inputText.isNotBlank())
                             MaterialTheme.colorScheme.primary
                         else
                             MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
@@ -143,21 +127,6 @@ fun ChatScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                 )
-
-                // Показываем подсказку если не подключены
-                if (connectionStatus != GatewayStatus.Connected) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = when (connectionStatus) {
-                            GatewayStatus.Connected -> ""
-                            GatewayStatus.Connecting -> "⏳ Подключение к gateway..."
-                            GatewayStatus.Error -> "❌ Ошибка подключения. Проверьте настройки."
-                            GatewayStatus.Disconnected -> "⚠️ Gateway не подключён"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
             }
         } else {
             LazyColumn(
@@ -181,16 +150,16 @@ fun ChatScreen(
  */
 @Composable
 private fun ChatMessageBubble(
-    message: ChatMessage,
+    message: UiChatMessage,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.isFromUser) Arrangement.End else Arrangement.Start
+        horizontalArrangement = if (message.role == "user") Arrangement.End else Arrangement.Start
     ) {
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = if (message.isFromUser)
+                containerColor = if (message.role == "user")
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                 else
                     MaterialTheme.colorScheme.surfaceVariant
@@ -205,8 +174,7 @@ private fun ChatMessageBubble(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                        .format(message.timestamp),
+                    text = message.status,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                 )

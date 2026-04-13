@@ -7,38 +7,36 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.gorikon.openclawgkvoice.gateway.GatewayConfig
-import com.gorikon.openclawgkvoice.ui.components.GatewayCard
+import com.gorikon.openclawgkvoice.messenger.Conversation
+import com.gorikon.openclawgkvoice.messenger.MessengerStatus
 
 /**
- * Главный экран — список всех gateway'ев.
+ * Главный экран — список конверсаций (диалогов).
  *
- * - Пустой список → показывает placeholder с кнопкой добавления
- * - Есть gateway'и → LazyColumn с карточками
- * - FAB для добавления нового gateway'я
+ * - Пустой список → placeholder с кнопкой добавления
+ * - Есть конверсации → LazyColumn с карточками
+ * - FAB для создания нового диалога
  * - Иконка настроек в App Bar
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    gateways: List<GatewayConfig>,
-    activeGateway: GatewayConfig?,
-    onAddGateway: () -> Unit,
-    onSettingsClick: () -> Unit,
-    onSelectGateway: (String) -> Unit,
+    conversations: List<Conversation>,
+    connectionStatus: MessengerStatus,
+    onCreateConversation: (String) -> Unit,
+    onDeleteConversation: (String) -> Unit,
     onChatClick: (String) -> Unit,
     onVoiceClick: (String) -> Unit,
-    onDeleteGateway: (String) -> Unit
+    onSettingsClick: () -> Unit,
+    onLogout: () -> Unit
 ) {
+    var showNewDialog by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -49,25 +47,41 @@ fun HomeScreen(
                     )
                 },
                 actions = {
+                    // Индикатор статуса подключения
+                    Text(
+                        text = when (connectionStatus) {
+                            MessengerStatus.Connected -> "🟢"
+                            MessengerStatus.Connecting -> "🟡"
+                            MessengerStatus.Error -> "🔴"
+                            MessengerStatus.Disconnected -> "⚫"
+                        },
+                        style = MaterialTheme.typography.titleMedium
+                    )
                     IconButton(onClick = onSettingsClick) {
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Настройки"
                         )
                     }
+                    IconButton(onClick = onLogout) {
+                        Icon(
+                            imageVector = Icons.Default.Exit,
+                            contentDescription = "Выход"
+                        )
+                    }
                 }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddGateway) {
+            FloatingActionButton(onClick = { showNewDialog = true }) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Добавить gateway"
+                    contentDescription = "Новый диалог"
                 )
             }
         }
     ) { padding ->
-        if (gateways.isEmpty()) {
+        if (conversations.isEmpty()) {
             // Placeholder для пустого списка
             Column(
                 modifier = Modifier
@@ -78,18 +92,18 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "🦊",
+                    text = "💬",
                     style = MaterialTheme.typography.headlineLarge
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Нет подключённых gateway'ев",
+                    text = "Нет диалогов",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Нажмите + чтобы добавить первый gateway",
+                    text = "Нажмите + чтобы создать первый диалог",
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
@@ -102,17 +116,125 @@ fun HomeScreen(
                     .padding(padding),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                items(gateways, key = { it.id }) { gateway ->
-                    GatewayCard(
-                        gateway = gateway,
-                        isActive = gateway.isActive,
-                        onSelect = { onSelectGateway(gateway.id) },
-                        onChatClick = { onChatClick(gateway.id) },
-                        onVoiceClick = { onVoiceClick(gateway.id) },
-                        onDelete = { onDeleteGateway(gateway.id) }
+                items(conversations, key = { it.id }) { conversation ->
+                    ConversationCard(
+                        conversation = conversation,
+                        onChatClick = { onChatClick(conversation.id) },
+                        onVoiceClick = { onVoiceClick(conversation.id) },
+                        onDelete = { onDeleteConversation(conversation.id) }
+                    )
+                }
+            }
+        }
+
+        // Диалог создания нового диалога
+        if (showNewDialog) {
+            NewConversationDialog(
+                onDismiss = { showNewDialog = false },
+                onCreate = { title ->
+                    onCreateConversation(title)
+                    showNewDialog = false
+                }
+            )
+        }
+    }
+}
+
+/**
+ * Карточка конверсации.
+ */
+@Composable
+private fun ConversationCard(
+    conversation: Conversation,
+    onChatClick: () -> Unit,
+    onVoiceClick: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = conversation.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = conversation.id.take(8),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(onClick = onVoiceClick, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Голосовой чат",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(onClick = onChatClick, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Chat,
+                        contentDescription = "Текстовый чат",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Удалить диалог",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
         }
     }
+}
+
+/**
+ * Диалог создания новой конверсации.
+ */
+@Composable
+private fun NewConversationDialog(
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Новый диалог") },
+        text = {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                label = { Text("Название") },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (title.isNotBlank()) onCreate(title.trim()) },
+                enabled = title.isNotBlank()
+            ) { Text("Создать") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        }
+    )
 }

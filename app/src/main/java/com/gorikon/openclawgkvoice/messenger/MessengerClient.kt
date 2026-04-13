@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
@@ -130,14 +131,14 @@ class MessengerClient @Inject constructor(
             val ct = cryptoManager.sealText(text, serverPublicKey)
             val ctB64 = android.util.Base64.encodeToString(ct, android.util.Base64.NO_WRAP)
             val msg = buildJsonObject {
-                put("type", "message_send")
+                put("type", JsonPrimitive("message_send"))
                 put("payload", buildJsonObject {
-                    put("conversationId", conversationId)
+                    put("conversationId", JsonPrimitive(conversationId))
                     put("message", buildJsonObject {
-                        put("ciphertext", ctB64)
-                        put("nonce", "")
-                        put("encryptedKey", "")
-                        put("messageType", "text")
+                        put("ciphertext", JsonPrimitive(ctB64))
+                        put("nonce", JsonPrimitive(""))
+                        put("encryptedKey", JsonPrimitive(""))
+                        put("messageType", JsonPrimitive("text"))
                     })
                 })
             }
@@ -154,14 +155,14 @@ class MessengerClient @Inject constructor(
             val ct = cryptoManager.sealMessage(audioBytes, serverPublicKey)
             val ctB64 = android.util.Base64.encodeToString(ct, android.util.Base64.NO_WRAP)
             val msg = buildJsonObject {
-                put("type", "message_send")
+                put("type", JsonPrimitive("message_send"))
                 put("payload", buildJsonObject {
-                    put("conversationId", conversationId)
+                    put("conversationId", JsonPrimitive(conversationId))
                     put("message", buildJsonObject {
-                        put("ciphertext", ctB64)
-                        put("nonce", "")
-                        put("encryptedKey", "")
-                        put("messageType", "audio")
+                        put("ciphertext", JsonPrimitive(ctB64))
+                        put("nonce", JsonPrimitive(""))
+                        put("encryptedKey", JsonPrimitive(""))
+                        put("messageType", JsonPrimitive("audio"))
                     })
                 })
             }
@@ -174,7 +175,7 @@ class MessengerClient @Inject constructor(
     fun requestConversationList() {
         if (!isConnected) return
         webSocket?.send(json.encodeToString(buildJsonObject {
-            put("type", "conversation_list")
+            put("type", JsonPrimitive("conversation_list"))
             put("payload", buildJsonObject {})
         }))
     }
@@ -182,32 +183,32 @@ class MessengerClient @Inject constructor(
     fun createConversation(title: String) {
         if (!isConnected) return
         webSocket?.send(json.encodeToString(buildJsonObject {
-            put("type", "conversation_create")
-            put("payload", buildJsonObject { put("title", title) })
+            put("type", JsonPrimitive("conversation_create"))
+            put("payload", buildJsonObject { put("title", JsonPrimitive(title)) })
         }))
     }
 
     fun requestMessageHistory(conversationId: String) {
         if (!isConnected) return
         webSocket?.send(json.encodeToString(buildJsonObject {
-            put("type", "message_history")
-            put("payload", buildJsonObject { put("conversationId", conversationId) })
+            put("type", JsonPrimitive("message_history"))
+            put("payload", buildJsonObject { put("conversationId", JsonPrimitive(conversationId)) })
         }))
     }
 
     fun deleteConversation(conversationId: String) {
         if (!isConnected) return
         webSocket?.send(json.encodeToString(buildJsonObject {
-            put("type", "conversation_delete")
-            put("payload", buildJsonObject { put("id", conversationId) })
+            put("type", JsonPrimitive("conversation_delete"))
+            put("payload", buildJsonObject { put("id", JsonPrimitive(conversationId)) })
         }))
     }
 
     fun sendTyping(conversationId: String) {
         if (!isConnected) return
         webSocket?.send(json.encodeToString(buildJsonObject {
-            put("type", "typing")
-            put("payload", buildJsonObject { put("conversationId", conversationId) })
+            put("type", JsonPrimitive("typing"))
+            put("payload", buildJsonObject { put("conversationId", JsonPrimitive(conversationId)) })
         }))
     }
 
@@ -225,8 +226,8 @@ class MessengerClient @Inject constructor(
 
     private fun sendAuth(token: String) {
         val msg = buildJsonObject {
-            put("type", "auth")
-            put("payload", buildJsonObject { put("token", token) })
+            put("type", JsonPrimitive("auth"))
+            put("payload", buildJsonObject { put("token", JsonPrimitive(token)) })
         }
         webSocket?.send(json.encodeToString(msg))
     }
@@ -321,7 +322,7 @@ class MessengerClient @Inject constructor(
 
     private fun sendPing() {
         webSocket?.send(json.encodeToString(buildJsonObject {
-            put("type", "ping")
+            put("type", JsonPrimitive("ping"))
             put("payload", buildJsonObject {})
         }))
     }
