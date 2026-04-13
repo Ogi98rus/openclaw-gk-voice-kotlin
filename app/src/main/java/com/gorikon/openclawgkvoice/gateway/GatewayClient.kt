@@ -213,7 +213,8 @@ class GatewayClient @Inject constructor(
      * Отправить heartbeat tick.
      */
     fun sendPing() {
-        val tickMessage = """{"type":"tick"}"""
+        val tickId = UUID.randomUUID().toString()
+        val tickMessage = """{"id":"$tickId","type":"tick"}"""
         webSocket?.send(tickMessage)
     }
 
