@@ -366,59 +366,60 @@ class GatewayClient @Inject constructor(
 
     /**
      * Извлечь значение строкового поля из JSON.
-     * Работает без regex — ищет литеральную строку `"key":` или `"key" :`.
+     * Ищем именно КЛЮЧ ("key":) а не значение, чтобы избежать коллизий
+     * когда значение одного поля совпадает с именем другого ключа.
+     * Пример: {"type":"event","event":"connect.challenge"} — ищем именно "event":
      */
     private fun extractJsonField(json: String, key: String): String? {
-        // Ищем "key": или "key" :
-        val keyPattern = "\"$key\""
-        val keyIndex = json.indexOf(keyPattern)
-        if (keyIndex == -1) return null
+        val keyPattern = "\"$key\":"
+        var startIndex = 0
 
-        // Пропускаем "key" и любые пробелы до :
-        var pos = keyIndex + keyPattern.length
-        while (pos < json.length && (json[pos] == ' ' || json[pos] == '\t')) pos++
-        if (pos >= json.length || json[pos] != ':') return null
-        pos++ // пропускаем :
-        while (pos < json.length && (json[pos] == ' ' || json[pos] == '\t')) pos++
+        while (true) {
+            val keyIndex = json.indexOf(keyPattern, startIndex)
+            if (keyIndex == -1) return null
 
-        if (pos >= json.length) return null
+            // Убедимся что перед "key" есть : или { — значит это именно ключ
+            val beforeKey = if (keyIndex > 0) json[keyIndex - 1] else ' '
+            if (beforeKey == ':' || beforeKey == '{' || beforeKey == ' ' || beforeKey == ',') {
+                // Это ключ, извлекаем значение
+                var pos = keyIndex + keyPattern.length
+                while (pos < json.length && (json[pos] == ' ' || json[pos] == '\t')) pos++
+                if (pos >= json.length) return null
 
-        // Проверяем: строковое значение (в кавычках) или примитив?
-        if (json[pos] == '"') {
-            // Строковое значение
-            pos++ // пропускаем открывающую кавычку
-            val valueStart = pos
-            var escaped = false
-            while (pos < json.length) {
-                val ch = json[pos]
-                if (escaped) {
-                    escaped = false
-                } else if (ch == '\\') {
-                    escaped = true
-                } else if (ch == '"') {
-                    break
+                if (json[pos] == '"') {
+                    // Строковое значение
+                    pos++
+                    val valueStart = pos
+                    var escaped = false
+                    while (pos < json.length) {
+                        val ch = json[pos]
+                        if (escaped) { escaped = false }
+                        else if (ch == '\\') { escaped = true }
+                        else if (ch == '"') { break }
+                        pos++
+                    }
+                    return if (pos > valueStart) {
+                        json.substring(valueStart, pos)
+                            .replace("\\n", "\n")
+                            .replace("\\r", "\r")
+                            .replace("\\t", "\t")
+                            .replace("\\\\", "\\")
+                            .replace("\\\"", "\"")
+                    } else null
+                } else {
+                    // Примитив (boolean, number)
+                    val valueStart = pos
+                    while (pos < json.length) {
+                        val ch = json[pos]
+                        if (ch == ',' || ch == '}' || ch == ']' || ch == ' ') break
+                        pos++
+                    }
+                    return json.substring(valueStart, pos).trim()
                 }
-                pos++
             }
-            return if (pos > valueStart) {
-                json.substring(valueStart, pos)
-                    .replace("\\n", "\n")
-                    .replace("\\r", "\r")
-                    .replace("\\t", "\t")
-                    .replace("\\\\", "\\")
-                    .replace("\\\"", "\"")
-            } else {
-                null
-            }
-        } else {
-            // Примитив (boolean, number)
-            val valueStart = pos
-            while (pos < json.length) {
-                val ch = json[pos]
-                if (ch == ',' || ch == '}' || ch == ']' || ch == ' ') break
-                pos++
-            }
-            return json.substring(valueStart, pos).trim()
+
+            // Не ключ (значение), ищем дальше
+            startIndex = keyIndex + 1
         }
     }
 
