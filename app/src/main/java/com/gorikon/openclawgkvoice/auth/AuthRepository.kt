@@ -8,6 +8,7 @@ import com.gorikon.openclawgkvoice.crypto.KeyPair
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -66,7 +67,7 @@ data class Credentials(
  */
 @Singleton
 class AuthRepository @Inject constructor(
-    private val context: Context
+    @ApplicationContext private val context: Context
 ) {
     private val encryptedPrefs: SharedPreferences by lazy {
         createEncryptedPrefs()
