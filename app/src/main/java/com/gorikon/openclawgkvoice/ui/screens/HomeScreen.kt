@@ -4,7 +4,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.MicExternalOn
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -65,7 +69,7 @@ fun HomeScreen(
                     }
                     IconButton(onClick = onLogout) {
                         Icon(
-                            imageVector = Icons.Default.Exit,
+                            imageVector = Icons.Default.Logout,
                             contentDescription = "Выход"
                         )
                     }
@@ -180,7 +184,7 @@ private fun ConversationCard(
             ) {
                 IconButton(onClick = onVoiceClick, modifier = Modifier.size(36.dp)) {
                     Icon(
-                        imageVector = Icons.Default.Mic,
+                        imageVector = Icons.Default.MicExternalOn,
                         contentDescription = "Голосовой чат",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
@@ -188,7 +192,7 @@ private fun ConversationCard(
                 }
                 IconButton(onClick = onChatClick, modifier = Modifier.size(36.dp)) {
                     Icon(
-                        imageVector = Icons.Default.Chat,
+                        imageVector = Icons.AutoMirrored.Filled.Chat,
                         contentDescription = "Текстовый чат",
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(20.dp)

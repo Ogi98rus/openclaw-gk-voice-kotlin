@@ -6,17 +6,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicExternalOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.gorikon.openclawgkvoice.gateway.GatewayStatus
-import com.gorikon.openclawgkvoice.gateway.VoiceState
+import com.gorikon.openclawgkvoice.messenger.MessengerStatus
 import com.gorikon.openclawgkvoice.ui.components.ConnectionStatus
 import com.gorikon.openclawgkvoice.ui.components.SimpleAmplitudeBar
 import com.gorikon.openclawgkvoice.ui.theme.ConnectedColor
@@ -34,13 +34,11 @@ import com.gorikon.openclawgkvoice.ui.theme.WarningColor
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VoiceScreen(
-    gatewayId: String,
-    voiceState: VoiceState,
-    onBack: () -> Unit,
-    onStartRecording: () -> Unit,
-    onStopRecording: () -> Unit,
-    onPauseRecording: () -> Unit
+    conversationId: String,
+    viewModel: VoiceViewModel,
+    onBack: () -> Unit
 ) {
+    val voiceState by viewModel.voiceState.collectAsStateWithLifecycle()
     var isDraggingUp by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -86,7 +84,7 @@ fun VoiceScreen(
                 color = when {
                     voiceState.isRecording -> WarningColor
                     voiceState.isPlaying -> ConnectedColor
-                    voiceState.connectionStatus == GatewayStatus.Error -> ErrorColor
+                    voiceState.connectionStatus == MessengerStatus.Error -> ErrorColor
                     else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 },
                 textAlign = TextAlign.Center
@@ -101,18 +99,18 @@ fun VoiceScreen(
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = { _: androidx.compose.ui.geometry.Offset ->
-                                onStartRecording()
+                                viewModel.startRecording()
                                 isDraggingUp = false
                             },
                             onDragEnd = {
                                 if (isDraggingUp) {
                                     // Отмена записи (можно добавить логику отмены)
                                 }
-                                onStopRecording()
+                                viewModel.stopRecording()
                                 isDraggingUp = false
                             },
                             onDragCancel = {
-                                onStopRecording()
+                                viewModel.stopRecording()
                                 isDraggingUp = false
                             },
                             onDrag = { change, dragAmount ->
@@ -147,7 +145,7 @@ fun VoiceScreen(
 
                 // Иконка микрофона
                 Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Default.Mic,
+                    imageVector = Icons.Default.MicExternalOn,
                     contentDescription = if (voiceState.isRecording) "Остановить запись" else "Начать запись",
                     tint = if (voiceState.isRecording)
                         MaterialTheme.colorScheme.background

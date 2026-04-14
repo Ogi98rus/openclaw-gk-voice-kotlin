@@ -5,9 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicExternalOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -16,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.gorikon.openclawgkvoice.gateway.GatewayConfig
 import com.gorikon.openclawgkvoice.gateway.GatewayStatus
+import com.gorikon.openclawgkvoice.messenger.MessengerStatus
 import com.gorikon.openclawgkvoice.ui.theme.*
 
 /**
@@ -64,7 +65,12 @@ fun GatewayCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Индикатор статуса
-                ConnectionStatus(status = gateway.status)
+                ConnectionStatus(status = when (gateway.status) {
+                    GatewayStatus.Connected -> MessengerStatus.Connected
+                    GatewayStatus.Connecting -> MessengerStatus.Connecting
+                    GatewayStatus.Error -> MessengerStatus.Error
+                    GatewayStatus.Disconnected -> MessengerStatus.Disconnected
+                })
 
                 // Название и URL
                 Column(
@@ -94,7 +100,7 @@ fun GatewayCard(
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Mic,
+                        imageVector = Icons.Default.MicExternalOn,
                         contentDescription = "Голосовой чат",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
@@ -107,7 +113,7 @@ fun GatewayCard(
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Chat,
+                        imageVector = Icons.AutoMirrored.Filled.Chat,
                         contentDescription = "Текстовый чат",
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(20.dp)
@@ -138,7 +144,7 @@ fun GatewayCard(
  */
 @Composable
 fun ConnectionStatus(
-    status: GatewayStatus,
+    status: MessengerStatus,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -148,10 +154,10 @@ fun ConnectionStatus(
     ) {
         // Цветной индикатор
         val color = when (status) {
-            GatewayStatus.Connected -> ConnectedColor
-            GatewayStatus.Connecting -> WarningColor
-            GatewayStatus.Error -> ErrorColor
-            GatewayStatus.Disconnected -> DisconnectedColor
+            MessengerStatus.Connected -> ConnectedColor
+            MessengerStatus.Connecting -> WarningColor
+            MessengerStatus.Error -> ErrorColor
+            MessengerStatus.Disconnected -> DisconnectedColor
         }
 
         Box(
@@ -161,13 +167,13 @@ fun ConnectionStatus(
                 .background(color)
         )
 
-        // Текстовая подпись (только на больших экранах, тут — для полноты)
+        // Текстовая подпись
         Text(
             text = when (status) {
-                GatewayStatus.Connected -> "Подключён"
-                GatewayStatus.Connecting -> "Подключение..."
-                GatewayStatus.Error -> "Ошибка"
-                GatewayStatus.Disconnected -> "Отключён"
+                MessengerStatus.Connected -> "Подключён"
+                MessengerStatus.Connecting -> "Подключение..."
+                MessengerStatus.Error -> "Ошибка"
+                MessengerStatus.Disconnected -> "Отключён"
             },
             style = MaterialTheme.typography.labelSmall,
             color = color

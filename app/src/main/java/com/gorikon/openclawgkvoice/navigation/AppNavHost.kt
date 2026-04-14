@@ -17,6 +17,7 @@ import com.gorikon.openclawgkvoice.ui.screens.PairingScreen
 import com.gorikon.openclawgkvoice.ui.screens.SettingsScreen
 import com.gorikon.openclawgkvoice.ui.screens.SettingsViewModel
 import com.gorikon.openclawgkvoice.ui.screens.VoiceScreen
+import com.gorikon.openclawgkvoice.ui.screens.VoiceViewModel
 
 /**
  * Корневой NavHost приложения.
@@ -92,8 +93,11 @@ fun AppNavHost(
             arguments = listOf(navArgument("conversationId") { type = NavType.StringType })
         ) { backStackEntry ->
             val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
+            val viewModel: VoiceViewModel = hiltViewModel(key = conversationId)
+
             VoiceScreen(
                 conversationId = conversationId,
+                viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )
         }
