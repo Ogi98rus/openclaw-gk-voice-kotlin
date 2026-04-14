@@ -288,9 +288,17 @@ class MessengerClient @Inject constructor(
                     }
                 }
                 "conversation_create" -> {
-                    if (payload != null) {
-                        val conv = json.decodeFromJsonElement<Conversation>(payload)
+                    // Сервер может вернуть {conversationId, ...} или полный Conversation
+                    val convId = payload?.get("conversationId")?.jsonPrimitive?.content
+                        ?: payload?.get("id")?.jsonPrimitive?.content
+                        ?: payload?.get("conversation")?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    if (convId != null) {
+                        val title = payload?.get("title")?.jsonPrimitive?.content ?: ""
+                        val createdAt = payload?.get("createdAt")?.jsonPrimitive?.content ?: ""
+                        val conv = Conversation(id = convId, title = title, createdAt = createdAt)
                         scope.launch { _events.emit(MessengerEvent.ConversationCreated(conv)) }
+                        // После создания запрашиваем полный список для актуальных данных
+                        requestConversationList()
                     }
                 }
                 "conversation_delete" -> {
