@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -72,65 +74,68 @@ class PairingViewModel @Inject constructor(
             _state.value = PairingState.Pairing
 
             try {
-                // 1. Генерируем key pair
-                val keyPair = cryptoManager.generateKeyPair()
-                val publicKeyB64 = android.util.Base64.encodeToString(
-                    keyPair.publicKey,
-                    android.util.Base64.NO_WRAP
-                )
+                // Переключаемся на IO-поток — OkHttp execute блокирующий
+                withContext(Dispatchers.IO) {
+                    // 1. Генерируем key pair
+                    val keyPair = cryptoManager.generateKeyPair()
+                    val publicKeyB64 = android.util.Base64.encodeToString(
+                        keyPair.publicKey,
+                        android.util.Base64.NO_WRAP
+                    )
 
-                // 2. POST /api/auth/pair
-                val json = JSONObject().apply {
-                    put("code", pairingCode)
-                    put("publicKey", publicKeyB64)
-                    put("deviceName", deviceName)
+                    // 2. POST /api/auth/pair
+                    val json = JSONObject().apply {
+                        put("code", pairingCode)
+                        put("publicKey", publicKeyB64)
+                        put("deviceName", deviceName)
+                    }
+
+                    val baseUrl = serverUrl.trimEnd('/')
+                    val request = Request.Builder()
+                        .url("$baseUrl/api/auth/pair")
+                        .post(json.toString().toRequestBody("application/json".toMediaType()))
+                        .addHeader("Content-Type", "application/json")
+                        .build()
+
+                    val response: Response = okHttpClient.newCall(request).execute()
+
+                    if (!response.isSuccessful) {
+                        val errorBody = response.body?.string() ?: "HTTP ${response.code}"
+                        Log.e(TAG, "Pair failed: $errorBody")
+                        _state.value = PairingState.Error("Ошибка сервера: $errorBody")
+                        return@withContext
+                    }
+
+                    val responseBody = response.body?.string() ?: ""
+                    Log.d(TAG, "Pair response: $responseBody")
+
+                    val respJson = JSONObject(responseBody)
+                    val token = respJson.getString("token")
+                    val userId = respJson.getString("userId")
+                    val deviceId = respJson.getString("deviceId")
+                    val serverPublicKeyB64 = respJson.getString("serverPublicKey")
+                    val serverPublicKey = android.util.Base64.decode(
+                        serverPublicKeyB64,
+                        android.util.Base64.NO_WRAP
+                    )
+
+                    // 3. Сохраняем credentials
+                    authRepository.saveCredentials(
+                        token = token,
+                        userId = userId,
+                        deviceId = deviceId,
+                        serverPublicKey = serverPublicKey,
+                        keyPair = keyPair
+                    )
+
+                    // 4. Сохраняем server URL
+                    serverRepository.setServerUrl(serverUrl)
+
+                    Log.i(TAG, "Pairing successful! userId=$userId, deviceId=$deviceId")
                 }
 
-                val baseUrl = serverUrl.trimEnd('/')
-                val request = Request.Builder()
-                    .url("$baseUrl/api/auth/pair")
-                    .post(json.toString().toRequestBody("application/json".toMediaType()))
-                    .addHeader("Content-Type", "application/json")
-                    .build()
-
-                val response: Response = okHttpClient.newCall(request).execute()
-
-                if (!response.isSuccessful) {
-                    val errorBody = response.body?.string() ?: "HTTP ${response.code}"
-                    Log.e(TAG, "Pair failed: $errorBody")
-                    _state.value = PairingState.Error("Ошибка сервера: $errorBody")
-                    return@launch
-                }
-
-                val responseBody = response.body?.string() ?: ""
-                Log.d(TAG, "Pair response: $responseBody")
-
-                val respJson = JSONObject(responseBody)
-                val token = respJson.getString("token")
-                val userId = respJson.getString("userId")
-                val deviceId = respJson.getString("deviceId")
-                val serverPublicKeyB64 = respJson.getString("serverPublicKey")
-                val serverPublicKey = android.util.Base64.decode(
-                    serverPublicKeyB64,
-                    android.util.Base64.NO_WRAP
-                )
-
-                // 3. Сохраняем credentials
-                authRepository.saveCredentials(
-                    token = token,
-                    userId = userId,
-                    deviceId = deviceId,
-                    serverPublicKey = serverPublicKey,
-                    keyPair = keyPair
-                )
-
-                // 4. Сохраняем server URL
-                serverRepository.setServerUrl(serverUrl)
-
-                // 5. Подключаемся к WebSocket
-                messengerClient.connect(serverUrl, token)
-
-                Log.i(TAG, "Pairing successful! userId=$userId, deviceId=$deviceId")
+                // 5. Подключаемся к WebSocket (неблокирующий, можно на Main)
+                messengerClient.connect(serverUrl, authRepository.getToken() ?: "")
                 _state.value = PairingState.Success
 
             } catch (e: Exception) {
