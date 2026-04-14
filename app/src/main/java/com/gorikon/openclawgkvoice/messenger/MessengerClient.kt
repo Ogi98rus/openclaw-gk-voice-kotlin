@@ -81,7 +81,8 @@ class MessengerClient @Inject constructor(
                 override fun onOpen(ws: WebSocket, response: Response) {
                     Log.d(TAG, "WebSocket opened")
                     reconnectAttempts = 0
-                    sendAuth(token)
+                    // Запрашиваем challenge для handshake
+                    sendAuthChallenge()
                 }
 
                 override fun onMessage(ws: WebSocket, text: String) {
@@ -214,6 +215,35 @@ class MessengerClient @Inject constructor(
 
     // === Internal ===
 
+    /**
+     * Шаг 1: Запросить challenge (nonce) от сервера.
+     */
+    private fun sendAuthChallenge() {
+        val id = java.util.UUID.randomUUID().toString()
+        val msg = buildJsonObject {
+            put("id", JsonPrimitive(id))
+            put("type", JsonPrimitive("auth_challenge"))
+            put("payload", buildJsonObject {})
+        }
+        webSocket?.send(json.encodeToString(msg))
+    }
+
+    /**
+     * Шаг 2: Ответить на challenge с токеном.
+     */
+    private fun sendAuthResponse(token: String, challenge: String) {
+        val id = java.util.UUID.randomUUID().toString()
+        val msg = buildJsonObject {
+            put("id", JsonPrimitive(id))
+            put("type", JsonPrimitive("auth_response"))
+            put("payload", buildJsonObject {
+                put("token", JsonPrimitive(token))
+                put("challenge", JsonPrimitive(challenge))
+            })
+        }
+        webSocket?.send(json.encodeToString(msg))
+    }
+
     private fun toWebSocketUrl(serverUrl: String): String {
         return when {
             serverUrl.startsWith("https://") -> serverUrl.replace("https://", "wss://") + "/ws"
@@ -224,12 +254,9 @@ class MessengerClient @Inject constructor(
         }
     }
 
-    private fun sendAuth(token: String) {
-        val msg = buildJsonObject {
-            put("type", JsonPrimitive("auth"))
-            put("payload", buildJsonObject { put("token", JsonPrimitive(token)) })
-        }
-        webSocket?.send(json.encodeToString(msg))
+    private fun sendAuth(_token: String) {
+        // Заменено на sendAuthChallenge() / sendAuthResponse()
+        // Этот метод оставлен для обратной совместимости (не используется)
     }
 
     private fun handleIncomingMessage(text: String) {
@@ -239,6 +266,13 @@ class MessengerClient @Inject constructor(
             val payload = obj["payload"]?.jsonObject
 
             when (type) {
+                "auth_challenge" -> {
+                    val challenge = payload?.get("challenge")?.jsonPrimitive?.content
+                    if (challenge != null) {
+                        Log.d(TAG, "Received challenge, sending auth_response")
+                        sendAuthResponse(currentToken ?: "", challenge)
+                    }
+                }
                 "connect_ok" -> {
                     Log.d(TAG, "connected!")
                     isConnected = true; isConnecting = false; reconnectAttempts = 0
